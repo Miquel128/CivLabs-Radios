@@ -1,0 +1,18 @@
+
+name: CivLabsRadios
+main: com.civlabs.radios.CivLabsRadiosPlugin
+version: 1.0.0
+api-version: "1.21"
+description: Enhanced radio blocks with slider GUI and dimension support
+authors: [ CivLabs ]
+depend: [ voicechat ]
+permissions:
+  civlabs.radio.base:
+    default: true
+  civlabs.radio.admin:
+    default: op
+commands:
+  radio:
+    description: Radio admin and utility commands
+    usage: /radio help
+    permission: civlabs.radio.base

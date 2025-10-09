@@ -1,0 +1,138 @@
+
+package com.civlabs.radios.gui;
+
+import com.civlabs.radios.CivLabsRadiosPlugin;
+import com.civlabs.radios.core.RadioMode;
+import com.civlabs.radios.model.Radio;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextColor;
+import org.bukkit.Material;
+import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class RadioGui {
+
+    public static void open(CivLabsRadiosPlugin plugin, Player viewer, Radio r) {
+        if (plugin.getRadioMode() == RadioMode.SLIDER) {
+            SliderGui.open(plugin, viewer, r);
+            return;
+        }
+        
+        // Simple mode - classic 3x9 grid
+        int max = Math.min(plugin.getMaxFrequencies(), 9);
+        Inventory inv = org.bukkit.Bukkit.createInventory(
+            new RadioGuiHolder(r.getId()),
+            27,
+            Component.text("Radio").color(getDimensionColor(r.getDimension()))
+        );
+
+        // Row 1: Transmit frequencies
+        for (int i = 1; i <= max; i++) {
+            inv.setItem(i - 1, txItem(i, plugin.isFrequencyLockedFor(i, r.getId()), r.getTransmitFrequency() == i));
+        }
+
+        // Row 2: Listen frequencies
+        for (int i = 1; i <= max; i++) {
+            inv.setItem(9 + (i - 1), rxItem(i, r.getListenFrequency() == i));
+        }
+
+        // Row 3: Controls
+        inv.setItem(18, statusItem(r));
+        inv.setItem(22, toggleItem(r.isEnabled()));
+        inv.setItem(26, closeItem());
+
+        viewer.openInventory(inv);
+    }
+
+    private static TextColor getDimensionColor(String dimension) {
+        return switch (dimension) {
+            case "NETHER" -> TextColor.color(200, 50, 50);
+            case "THE_END" -> TextColor.color(180, 100, 200);
+            default -> TextColor.color(255, 255, 255);
+        };
+    }
+
+    private static ItemStack named(Material m, String name, List<Component> lore) {
+        ItemStack it = new ItemStack(m);
+        ItemMeta meta = it.getItemMeta();
+        meta.displayName(Component.text(name));
+        if (lore != null && !lore.isEmpty()) meta.lore(lore);
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    private static ItemStack txItem(int f, boolean locked, boolean selected) {
+        if (locked) return named(Material.BARRIER, "TX " + f, List.of(Component.text("§cIn use by another radio")));
+        if (selected) return named(Material.REDSTONE_TORCH, "TX " + f, List.of(Component.text("§aCurrently selected")));
+        return named(Material.STONE_BUTTON, "TX " + f, List.of(Component.text("§7Click to transmit on " + f)));
+    }
+
+    private static ItemStack rxItem(int f, boolean selected) {
+        if (selected) return named(Material.NOTE_BLOCK, "RX " + f, List.of(Component.text("§aListening to " + f)));
+        return named(Material.OAK_BUTTON, "RX " + f, List.of(Component.text("§7Click to listen to " + f)));
+    }
+
+    private static ItemStack toggleItem(boolean on) {
+        return named(
+            on ? Material.REDSTONE_TORCH : Material.LEVER,
+            on ? "Disable" : "Enable",
+            List.of(Component.text(on ? "§cClick to turn off" : "§aClick to turn on"))
+        );
+    }
+
+    private static ItemStack closeItem() {
+        return named(Material.BARRIER, "Close", List.of(Component.text("§7Close this menu")));
+    }
+
+    private static ItemStack statusItem(Radio r) {
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("§7TX: §e" + (r.getTransmitFrequency() > 0 ? r.getTransmitFrequency() : "None")));
+        lore.add(Component.text("§7RX: §e" + (r.getListenFrequency() > 0 ? r.getListenFrequency() : "None")));
+        lore.add(Component.text("§7Status: " + (r.isEnabled() ? "§aON" : "§cOFF")));
+        lore.add(Component.text("§7Dimension: §e" + r.getDimension()));
+        return named(Material.BOOK, "Radio Status", lore);
+    }
+
+    public static void handleClick(CivLabsRadiosPlugin plugin, Player p, Radio r, InventoryClickEvent e) {
+        if (e.getCurrentItem() == null || !e.getCurrentItem().hasItemMeta()) return;
+
+        String name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+            .serialize(e.getCurrentItem().getItemMeta().displayName());
+
+        if (name.startsWith("TX ")) {
+            int f = Integer.parseInt(name.substring(3));
+            if (plugin.isFrequencyLockedFor(f, r.getId())) {
+                p.sendMessage(plugin.msg("messages.freq_in_use")
+                    .replaceText(b -> b.matchLiteral("{freq}").replacement(String.valueOf(f))));
+                plugin.sounds().playError(p);
+                return;
+            }
+            r.setTransmitFrequency(f);
+            plugin.store().save(r);
+            plugin.sounds().playFrequencyChange(p);
+        } else if (name.startsWith("RX ")) {
+            int f = Integer.parseInt(name.substring(3));
+            r.setListenFrequency(f);
+            plugin.store().save(r);
+            plugin.voice().updateSpeakerFor(r);
+            plugin.sounds().playFrequencyChange(p);
+        } else if (name.equals("Enable")) {
+            if (r.getTransmitFrequency() > 0) {
+                plugin.enableRadio(r, p, r.getTransmitFrequency());
+            }
+        } else if (name.equals("Disable")) {
+            plugin.disableRadioIfEnabled(r, com.civlabs.radios.model.DisableReason.ADMIN);
+        } else if (name.equals("Close")) {
+            p.closeInventory();
+            return;
+        }
+
+        open(plugin, p, r);
+    }
+}

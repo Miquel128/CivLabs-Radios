@@ -1,0 +1,89 @@
+package com.civlabs.radios.listener;
+
+import com.civlabs.radios.CivLabsRadiosPlugin;
+import com.civlabs.radios.gui.RadioGui;
+import com.civlabs.radios.model.Radio;
+import com.civlabs.radios.util.Keys;
+import org.bukkit.block.Block;
+import org.bukkit.block.TileState;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.Inventory;
+
+import java.util.Optional;
+import java.util.UUID;
+
+public class RadioInteractListener implements Listener {
+    private final CivLabsRadiosPlugin plugin;
+
+    public RadioInteractListener(CivLabsRadiosPlugin plugin) { this.plugin = plugin; }
+
+    @EventHandler
+    public void onUse(PlayerInteractEvent e) {
+        plugin.getLogger().info("[DEBUG] PlayerInteractEvent triggered");
+        plugin.getLogger().info("[DEBUG] Action: " + e.getAction());
+        
+        if (e.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            plugin.getLogger().info("[DEBUG] Not a right-click on block, ignoring");
+            return;
+        }
+        
+        if (e.getClickedBlock() == null) {
+            plugin.getLogger().info("[DEBUG] Clicked block is null");
+            return;
+        }
+        
+        Block b = e.getClickedBlock();
+        plugin.getLogger().info("[DEBUG] Clicked block type: " + b.getType());
+        plugin.getLogger().info("[DEBUG] Block state: " + b.getState().getClass().getName());
+        
+        if (!(b.getState() instanceof TileState ts)) {
+            plugin.getLogger().info("[DEBUG] Block is NOT a TileState, ignoring");
+            return;
+        }
+        
+        plugin.getLogger().info("[DEBUG] Block IS a TileState, checking for radio tag...");
+        
+        String tag = ts.getPersistentDataContainer().get(Keys.RADIO_ID, org.bukkit.persistence.PersistentDataType.STRING);
+        plugin.getLogger().info("[DEBUG] Radio tag: " + tag);
+        
+        if (tag == null) {
+            plugin.getLogger().info("[DEBUG] No radio tag found on this block");
+            return;
+        }
+        
+        plugin.getLogger().info("[DEBUG] Radio tag found! ID: " + tag);
+        
+        // CANCEL THE EVENT SO BARREL DOESN'T OPEN!
+        e.setCancelled(true);
+        plugin.getLogger().info("[DEBUG] Event cancelled - barrel won't open its default GUI");
+        
+        UUID id = UUID.fromString(tag);
+        Radio r = plugin.store().get(id);
+        
+        if (r == null) {
+            plugin.getLogger().warning("[DEBUG] Radio exists in block but NOT in database!");
+            return;
+        }
+        
+        plugin.getLogger().info("[DEBUG] Radio found in database! Opening GUI...");
+        RadioGui.open(plugin, e.getPlayer(), r);
+        plugin.getLogger().info("[DEBUG] GUI opened successfully!");
+    }
+
+    @EventHandler
+    public void onInvClick(InventoryClickEvent e) {
+        Inventory inv = e.getInventory();
+        if (inv.getHolder()!=null) return;
+        if (inv.getSize()!=27) return;
+        if (!inv.getViewers().isEmpty() && inv.getViewers().get(0).getOpenInventory().title().equals(net.kyori.adventure.text.Component.text("Radio"))) {
+            Player p = (Player) e.getWhoClicked();
+            Optional<Radio> r = plugin.store().byLocation(p.getTargetBlockExact(5) != null ? p.getTargetBlockExact(5).getLocation() : p.getLocation());
+            r.ifPresent(radio -> RadioGui.handleClick(plugin, p, radio, e));
+        }
+    }
+}

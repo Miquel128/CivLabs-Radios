@@ -1,0 +1,27 @@
+maxFrequencies: 9
+operatorRadius: 30
+speakerRadius: 30
+baseBlock: BARREL
+allowItemDropOnBreak: true
+crafting:
+  enabled: true
+  customModelData: 123456
+  recipe:
+    shape: [ "RCR", "LEL", "ASA" ]
+    ingredients:
+      R: REDSTONE_BLOCK
+      C: COPPER_BLOCK
+      L: LODESTONE
+      E: ECHO_SHARD
+      A: AMETHYST_SHARD
+      S: SCULK_SENSOR
+messages:
+  freq_in_use: "<red>That frequency is already in use.</red>"
+  enabled: "<green>Radio enabled on frequency {freq}.</green>"
+  disabled: "<yellow>Radio disabled: {reason}.</yellow>"
+  all_used: "<yellow>All frequencies are in use. You can still tune to listen.</yellow>"
+voice:
+  isolateOperatorInTxGroup: true
+  txGroupPrefix: "TX "
+  txGroupPersistent: true
+  txGroupHidden: true

@@ -1,0 +1,24 @@
+name: CivLabsRadios
+main: com.civlabs.radios.CivLabsRadiosPlugin
+version: 1.0.0
+api-version: "1.21"
+description: Radio blocks with SVC positional audio and server-wide frequencies
+authors: [ CivLabs ]
+depend: [ voicechat ]
+permissions:
+  civlabs.radio.craft:
+    default: true
+  civlabs.radio.place:
+    default: true
+  civlabs.radio.tune:
+    default: true
+  civlabs.radio.enable:
+    default: true
+  civlabs.radio.admin:
+    default: op
+
+commands:
+  radio:
+    description: Radio admin commands
+    usage: /radio give
+    permission: civlabs.radio.admin

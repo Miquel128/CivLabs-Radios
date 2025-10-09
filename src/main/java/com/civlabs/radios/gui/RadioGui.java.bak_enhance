@@ -1,0 +1,142 @@
+package com.civlabs.radios.gui;
+
+import com.civlabs.radios.CivLabsRadiosPlugin;
+import com.civlabs.radios.model.Radio;
+import net.kyori.adventure.text.Component;
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class RadioGui {
+
+    private static final int ROWS = 3;
+    private static final int SIZE = ROWS * 9;
+
+    public static Inventory open(CivLabsRadiosPlugin plugin, Player viewer, Radio r) {
+        int max = Math.min(plugin.getConfig().getInt("maxFrequencies", 9), 9);
+
+        Inventory inv = Bukkit.createInventory(new RadioGuiHolder(r.getId()), SIZE, Component.text("Radio"));
+
+        // Row 1: Transmit 1..max (slots 0..max-1)
+        for (int i=1; i<=max; i++) {
+            boolean locked = plugin.freq().inUse(i) && r.getTransmitFrequency() != i;
+            boolean selected = r.getTransmitFrequency() == i;
+            inv.setItem(i-1, txItem(i, locked, selected));
+        }
+
+        // Row 2: Listen 1..max (slots 9..9+max-1)
+        for (int i=1; i<=max; i++) {
+            boolean selected = r.getListenFrequency() == i;
+            inv.setItem(9 + (i-1), rxItem(i, selected));
+        }
+
+        // Row 3 controls
+        inv.setItem(18, statusItem(r));                        // Status (left)
+        inv.setItem(22, toggleItem(r.isEnabled()));            // Enable/Disable (center)
+        inv.setItem(26, closeItem());                          // Close (right)
+
+        viewer.openInventory(inv);
+        return inv;
+    }
+
+    private static ItemStack named(Material m, String name, List<Component> lore) {
+        ItemStack it = new ItemStack(m);
+        ItemMeta meta = it.getItemMeta();
+        meta.displayName(Component.text(name));
+        if (lore != null && !lore.isEmpty()) {
+            meta.lore(lore);
+        }
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    private static ItemStack txItem(int f, boolean locked, boolean selected) {
+        // Use button-like items instead of panes; color intent via type
+        if (locked) {
+            return named(Material.BARRIER, "Transmit " + f, List.of(Component.text("In use by another radio")));
+        } else if (selected) {
+            return named(Material.REDSTONE_TORCH, "Transmit " + f, List.of(Component.text("Selected")));
+        } else {
+            return named(Material.STONE_BUTTON, "Transmit " + f, List.of(Component.text("Click to select")));
+        }
+    }
+
+    private static ItemStack rxItem(int f, boolean selected) {
+        if (selected) {
+            return named(Material.NOTE_BLOCK, "Listen " + f, List.of(Component.text("Selected")));
+        } else {
+            return named(Material.OAK_BUTTON, "Listen " + f, List.of(Component.text("Click to select")));
+        }
+    }
+
+    private static ItemStack toggleItem(boolean enabled) {
+        return named(enabled ? Material.REDSTONE_TORCH : Material.LEVER,
+                enabled ? "Disable" : "Enable",
+                List.of(Component.text(enabled ? "Turn transmitter off" : "Turn transmitter on")));
+    }
+
+    private static ItemStack closeItem() {
+        return named(Material.BARRIER, "Close", List.of(Component.text("Close this menu")));
+    }
+
+    private static ItemStack statusItem(Radio r) {
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("TX: " + (r.getTransmitFrequency() > 0 ? r.getTransmitFrequency() : "None")));
+        lore.add(Component.text("RX: " + (r.getListenFrequency() > 0 ? r.getListenFrequency() : "None")));
+        lore.add(Component.text("Enabled: " + r.isEnabled()));
+        return named(Material.BOOK, "Status", lore);
+    }
+
+    public static void handleClick(CivLabsRadiosPlugin plugin, Player p, Radio r, InventoryClickEvent e) {
+        e.setCancelled(true);
+        if (e.getCurrentItem()==null || !e.getCurrentItem().hasItemMeta() || e.getCurrentItem().getItemMeta().displayName()==null) return;
+
+        String name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+                .serialize(e.getCurrentItem().getItemMeta().displayName());
+
+        if (name.startsWith("Transmit")) {
+            int f = safeParse(name);
+            if (f > 0) {
+                r.setTransmitFrequency(f);
+                plugin.store().save(r);
+                p.sendMessage(Component.text("Transmit frequency set to " + f));
+            }
+        } else if (name.startsWith("Listen")) {
+            int f = safeParse(name);
+            if (f > 0) {
+                r.setListenFrequency(f);
+                plugin.store().save(r);
+                p.sendMessage(Component.text("Listening frequency set to " + f));
+                plugin.voice().updateSpeakerFor(r);
+            }
+        } else if (name.equals("Enable")) {
+            if (!plugin.canOperate(p)) { p.sendMessage(Component.text("You are not eligible to operate this radio.")); return; }
+            if (r.getTransmitFrequency() < 1) { p.sendMessage(Component.text("Pick a transmit frequency first.")); return; }
+            plugin.enableRadio(r, p, r.getTransmitFrequency());
+        } else if (name.equals("Disable")) {
+            plugin.disableRadioIfEnabled(r, com.civlabs.radios.model.DisableReason.ADMIN);
+        } else if (name.equals("Close")) {
+            p.closeInventory();
+            return;
+        }
+
+        // Refresh UI
+        open(plugin, p, r);
+    }
+
+    private static int safeParse(String label) {
+        try {
+            String[] parts = label.split(" ");
+            return Integer.parseInt(parts[1]);
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+}
