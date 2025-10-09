@@ -1,6 +1,5 @@
 package com.civlabs.radios;
 
-import com.civlabs.radios.command.RadioTabCompleter;
 import com.civlabs.radios.core.FrequencyManager;
 import com.civlabs.radios.core.RadioMode;
 import com.civlabs.radios.listener.RadioBreakListener;
@@ -17,36 +16,33 @@ import com.civlabs.radios.voice.RadioVoicePlugin;
 import com.civlabs.radios.voice.VoiceBridge;
 import de.maxhenkel.voicechat.api.BukkitVoicechatService;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Main plugin class for CivLabs Radios.
- * Integrates with Simple Voice Chat through VoiceBridge (which handles delay, static, etc.)
  */
 public final class CivLabsRadiosPlugin extends JavaPlugin {
 
+    // --- FIELDS (keep these INSIDE the class) ---
     private RadioStore radioStore;
     private FrequencyManager freqManager;
     private VoiceBridge voice;
     private OperatorGuardTask guardTask;
     private SoundEffects sounds;
-
-    private boolean debugMode;
-    private boolean showCoordinates;
     private RadioMode currentMode;
-    private final MiniMessage mm = MiniMessage.miniMessage();
+
+    // NEW: used by GUIs like FrequencyOverviewGui
+    private boolean showCoordinates;
+
+    // --------------------------------------------
 
     public static NamespacedKey key(String path, JavaPlugin plugin) {
         return new NamespacedKey(plugin, path);
@@ -54,179 +50,108 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        if (getCommand("radio") != null) getCommand("radio").setTabCompleter(new RadioTabCompleter(this));
         saveDefaultConfig();
         Keys.init(this);
 
-        loadConfiguration();
+        // load mode from config
+        String modeStr = getConfig().getString("radioMode", "simple");
+        this.currentMode = RadioMode.valueOf(modeStr.toUpperCase());
+
+        // NEW: load "show coords" flag from config (default false)
+        this.showCoordinates = getConfig().getBoolean("admin.showCoordinates", false);
 
         this.radioStore = new RadioStore(getDataFolder().toPath().resolve("radios.yml"));
-        this.freqManager = new FrequencyManager(getMaxFrequenciesForMode());
-        this.voice = new VoiceBridge(this); // <<=== main voice bridge
+        this.freqManager = new FrequencyManager(getConfig().getInt("maxFrequencies", 10));
+        this.voice = new VoiceBridge(this);
         this.sounds = new SoundEffects(this);
 
-        this.freqManager.clearAndLoad(radioStore.getAll());
-
-        // ---- Simple Voice Chat integration ----
+        // Simple Voice Chat integration
         BukkitVoicechatService svc = getServer().getServicesManager().load(BukkitVoicechatService.class);
         if (svc != null) {
             svc.registerPlugin(new RadioVoicePlugin(this, voice));
-            getLogger().info("[CivLabsRadios] Registered VoiceBridge with Simple Voice Chat.");
         } else {
-            getLogger().warning("[CivLabsRadios] Simple Voice Chat not detected. Voice features will be disabled.");
+            getLogger().warning("Simple Voice Chat not detected as a service. Ensure the plugin is installed.");
         }
-        // ---------------------------------------
 
-        // Register listeners and recipes
+        // Listeners
         Bukkit.getPluginManager().registerEvents(new RadioPlaceListener(this), this);
         Bukkit.getPluginManager().registerEvents(new RadioInteractListener(this), this);
         Bukkit.getPluginManager().registerEvents(new RadioBreakListener(this), this);
 
         ItemUtil.registerRecipeIfEnabled(this);
 
-        // Operator guard task (monitors active radios)
+        // Periodic guard
         this.guardTask = new OperatorGuardTask(this, radioStore, this::disableRadioIfEnabled);
         this.guardTask.start();
 
-        log("CivLabsRadios v1.0.3 enabled. Mode=" + currentMode + " MaxFreq=" + getMaxFrequencies() + " Debug=" + debugMode);
+        getLogger().info("CivLabsRadios enabled.");
     }
 
     @Override
     public void onDisable() {
         if (guardTask != null) guardTask.stop();
-
-        // shut down voice channels/speakers cleanly
-        if (voice != null) {
-            voice.shutdownAllSpeakers();
-        }
+        if (voice != null) voice.shutdownAllSpeakers();
 
         for (Radio r : radioStore.getAll()) {
             if (r.isEnabled()) disableRadioIfEnabled(r, DisableReason.SERVER_STOP);
         }
-        log("CivLabsRadios v1.0.3 disabled.");
+        getLogger().info("CivLabsRadios disabled.");
     }
 
     /* =========================
-       CONFIG / STATE MANAGEMENT
+       Debug helper
        ========================= */
-    private void loadConfiguration() {
-        this.debugMode = getConfig().getBoolean("debug.enabled", false);
-        this.showCoordinates = getConfig().getBoolean("admin.showCoordinates", false);
-
-        String modeStr = getConfig().getString("radioMode", "simple");
-        this.currentMode = RadioMode.valueOf(modeStr.toUpperCase());
-    }
-
-    private int getMaxFrequenciesForMode() {
-        return currentMode == RadioMode.SIMPLE ?
-                getConfig().getInt("simpleFrequencies", 9) :
-                Math.min(getConfig().getInt("maxFrequencies", 128), 1024);
+    public void dbg(String msg) {
+        if (getConfig().getBoolean("debug.enabled", false)) {
+            getLogger().info("[DEBUG] " + msg);
+        }
     }
 
     /* =========================
-       ACCESSORS
+       Accessors
        ========================= */
     public RadioStore store() { return radioStore; }
     public FrequencyManager freq() { return freqManager; }
     public VoiceBridge voice() { return voice; }
     public SoundEffects sounds() { return sounds; }
-    public boolean isDebug() { return debugMode; }
-    public boolean showCoordinates() { return showCoordinates; }
+    public int getMaxFrequencies() {
+        return freqManager != null ? freqManager.getMaxFrequencies() : getConfig().getInt("maxFrequencies", 10);
+    }
     public RadioMode getRadioMode() { return currentMode; }
-    public int getMaxFrequencies() { return freqManager.getMaxFrequencies(); }
+
+    // NEW: GUI expects this
+    public boolean showCoordinates() { return showCoordinates; }
 
     /* =========================
-       CONFIG MUTATORS
+       Radio management
        ========================= */
-    public void setDebug(boolean on) {
-        this.debugMode = on;
-        getConfig().set("debug.enabled", on);
-        saveConfig();
-    }
-
-    public void setShowCoordinates(boolean show) {
-        this.showCoordinates = show;
-        getConfig().set("admin.showCoordinates", show);
-        saveConfig();
-    }
-
-    public void setRadioMode(RadioMode mode, int maxFreq) {
-        this.currentMode = mode;
-        getConfig().set("radioMode", mode.name().toLowerCase());
-
-        if (mode == RadioMode.SLIDER) {
-            maxFreq = Math.min(Math.max(maxFreq, 1), 1024);
-            getConfig().set("maxFrequencies", maxFreq);
-        } else {
-            maxFreq = getConfig().getInt("simpleFrequencies", 9);
-        }
-
-        saveConfig();
-
-        for (Radio r : radioStore.getAll()) {
-            if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) {
-                disableRadioIfEnabled(r, DisableReason.ADMIN);
+    // Checks if a transmit frequency is already taken by another enabled radio
+    public boolean isFrequencyLockedFor(int f, java.util.UUID requesterRadioId) {
+        for (com.civlabs.radios.model.Radio r : radioStore.getAll()) {
+            if (r.isEnabled() && r.getTransmitFrequency() == f && !r.getId().equals(requesterRadioId)) {
+                return true;
             }
         }
-
-        this.freqManager = new FrequencyManager(maxFreq);
-        this.freqManager.clearAndLoad(radioStore.getAll());
+        return false;
     }
 
-    /* =========================
-       RADIO MANAGEMENT
-       ========================= */
-    public boolean canOperate(Player p) {
-        return true;
-    }
+    public boolean canOperate(Player p) { return true; }
 
     public boolean enableRadio(Radio r, Player operator, int txFreq) {
         if (!canOperate(operator)) return false;
 
-        if (getConfig().getBoolean("dimensions.restrictToDimension", true)) {
-            if (!r.getDimension().equals(operator.getWorld().getEnvironment().name())) {
-                operator.sendMessage(msg("messages.dimension_mismatch")
-                        .replaceText(b -> b.matchLiteral("{dimension}").replacement(r.getDimension()))
-                        .replaceText(b -> b.matchLiteral("{current}").replacement(operator.getWorld().getEnvironment().name())));
-                sounds.playError(operator);
-                return false;
-            }
-        }
-
-        if (txFreq > freqManager.getMaxFrequencies()) {
-            operator.sendMessage(msg("messages.freq_out_of_range")
-                    .replaceText(b -> b.matchLiteral("{freq}").replacement(String.valueOf(txFreq))));
-            sounds.playError(operator);
-            return false;
-        }
-
-        if (isFrequencyLockedFor(txFreq, r.getId())) {
-            operator.sendMessage(msg("messages.freq_in_use")
-                    .replaceText(b -> b.matchLiteral("{freq}").replacement(String.valueOf(txFreq))));
-            sounds.playError(operator);
-            return false;
-        }
-
         if (!freqManager.claim(txFreq, r.getId())) {
-            operator.sendMessage(msg("messages.freq_in_use")
-                    .replaceText(b -> b.matchLiteral("{freq}").replacement(String.valueOf(txFreq))));
-            sounds.playError(operator);
+            operator.sendMessage(color(getConfig().getString("messages.freq_in_use", "That frequency is already in use.")));
             return false;
         }
-
         r.setTransmitFrequency(txFreq);
         r.setOperator(operator.getUniqueId());
         r.setEnabled(true);
         radioStore.save(r);
 
-        freqManager.clearAndLoad(radioStore.getAll());
-
-        // Bind operator to TX group in VoiceChat
         voice.bindOperator(r, operator);
-
-        operator.sendMessage(msg("messages.enabled")
-                .replaceText(b -> b.matchLiteral("{freq}").replacement(String.valueOf(txFreq))));
-        sounds.playEnable(operator);
+        operator.sendMessage(color(getConfig().getString("messages.enabled", "Enabled on {freq}.")
+                .replace("{freq}", String.valueOf(txFreq))));
         return true;
     }
 
@@ -245,68 +170,96 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         r.setOperator(null);
         radioStore.save(r);
 
-        freqManager.clearAndLoad(radioStore.getAll());
-
         Player notify = op != null ? Bukkit.getPlayer(op) : null;
         if (notify != null) {
-            notify.sendMessage(msg("messages.disabled")
-                    .replaceText(b -> b.matchLiteral("{reason}").replacement(reason.name())));
-            sounds.playDisable(notify);
+            notify.sendMessage(color(getConfig().getString("messages.disabled", "Disabled: {reason}.")
+                    .replace("{reason}", reason.name())));
         }
     }
 
-    public boolean isFrequencyLockedFor(int f, UUID requesterRadioId) {
-        for (Radio r : radioStore.getAll()) {
-            if (r.isEnabled() && r.getTransmitFrequency() == f && !r.getId().equals(requesterRadioId)) {
-                return true;
-            }
-        }
-        return false;
+    private Component color(String legacy) {
+        return net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection()
+                .deserialize(legacy == null ? "" : legacy);
     }
-
-    /* =========================
-       UTILS
-       ========================= */
-    public Component msg(String path) {
+    // Fetches a MiniMessage-formatted message from config.yml
+    public net.kyori.adventure.text.Component msg(String path) {
         String raw = getConfig().getString(path, "");
-        return mm.deserialize(raw);
+        return net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(raw);
     }
 
-    public void log(String s) { getLogger().info(s); }
-    public void dbg(String s) { if (debugMode) getLogger().info("[DEBUG] " + s); }
-
     /* =========================
-       COMMANDS (/radio)
+       /radio command (subset)
        ========================= */
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!command.getName().equalsIgnoreCase("radio")) return false;
 
-        if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
-            sender.sendMessage(mm.deserialize("<gold>═══ CivLabsRadios v1.0.3 ═══</gold>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio help</yellow> <gray>- Show this help</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio give</yellow> <gray>- Get a Radio item (admin)</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio list</yellow> <gray>- List all radios</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio free <freq></yellow> <gray>- Force free a frequency (admin)</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio mode <simple|slider> [maxFreq]</yellow> <gray>- Change radio mode (admin)</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio coords <on|off|toggle></yellow> <gray>- Toggle coordinate display (admin)</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio debug <on|off|toggle></yellow> <gray>- Toggle debug mode (admin)</gray>"));
-            sender.sendMessage(mm.deserialize("<yellow>/radio reload</yellow> <gray>- Reload configuration (admin)</gray>"));
+        if (args.length == 0) {
+            sender.sendMessage("Use /radio give | /radio mode <simple|slider> [maxFreq] | /radio reload");
             return true;
         }
 
-        String sub = args[0].toLowerCase(Locale.ROOT);
-
+        String sub = args[0].toLowerCase();
         switch (sub) {
-            case "give" -> { /* unchanged */ }
-            case "list" -> { /* unchanged */ }
-            case "free" -> { /* unchanged */ }
-            case "mode" -> { /* unchanged */ }
-            case "coords" -> { /* unchanged */ }
-            case "debug" -> { /* unchanged */ }
-            case "reload" -> { /* unchanged */ }
-            default -> sender.sendMessage("Unknown subcommand. Use /radio help");
+            case "give" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("Players only."); return true; }
+                if (!p.hasPermission("civlabs.radio.admin")) { p.sendMessage(Component.text("No permission")); return true; }
+                ItemStack radio = ItemUtil.createRadioItem(this);
+                p.getInventory().addItem(radio);
+                p.sendMessage(Component.text("Gave you a Radio!"));
+                sounds.playFrequencyChange(p); // feedback sound if you like
+                return true;
+            }
+            case "mode" -> {
+                if (!sender.hasPermission("civlabs.radio.admin")) { sender.sendMessage("No permission"); return true; }
+                if (args.length < 2) { sender.sendMessage("Usage: /radio mode <simple|slider> [maxFreq]"); return true; }
+                String modeStr = args[1].toLowerCase();
+                boolean slider = switch (modeStr) {
+                    case "simple" -> false;
+                    case "slider" -> true;
+                    default -> { sender.sendMessage("Invalid mode. Use simple|slider."); yield false; }
+                };
+                int maxFreq = getConfig().getInt("maxFrequencies", 10);
+                if (slider && args.length >= 3) {
+                    try {
+                        maxFreq = Math.max(1, Math.min(1024, Integer.parseInt(args[2])));
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage("Invalid max frequency.");
+                        return true;
+                    }
+                } else if (!slider) {
+                    maxFreq = getConfig().getInt("simpleFrequencies", 9);
+                }
+
+                getConfig().set("maxFrequencies", maxFreq);
+                saveConfig();
+
+                this.freqManager = new FrequencyManager(maxFreq);
+                for (Radio r : radioStore.getAll()) {
+                    if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) {
+                        disableRadioIfEnabled(r, DisableReason.ADMIN);
+                    }
+                }
+                sender.sendMessage("Mode set to " + (slider ? "slider" : "simple") + " with max " + maxFreq + ".");
+                return true;
+            }
+            case "reload" -> {
+                if (!sender.hasPermission("civlabs.radio.admin")) { sender.sendMessage("No permission"); return true; }
+                reloadConfig();
+                int maxFreq = getConfig().getInt("maxFrequencies", freqManager.getMaxFrequencies());
+                this.freqManager = new FrequencyManager(maxFreq);
+                for (Radio r : radioStore.getAll()) {
+                    if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) {
+                        disableRadioIfEnabled(r, DisableReason.ADMIN);
+                    }
+                }
+                sender.sendMessage("Configuration reloaded.");
+                return true;
+            }
+            default -> {
+                sender.sendMessage("Unknown subcommand. Use /radio give | /radio mode | /radio reload");
+                return true;
+            }
         }
-        return true;
     }
 }

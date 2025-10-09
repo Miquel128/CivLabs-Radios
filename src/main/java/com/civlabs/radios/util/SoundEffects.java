@@ -45,4 +45,5 @@ public class SoundEffects {
     public void playClick(Player p) {
         play(p, "click");
     }
+
 }
