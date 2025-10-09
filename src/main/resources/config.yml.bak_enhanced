@@ -62,7 +62,7 @@ debug:
 
 # Voice chat integration
 voice:
-  isolateOperatorInTxGroup: true
+  isolateOperatorInTxGroup: false
   txGroupPrefix: "TX "
   txGroupPersistent: true
   txGroupHidden: true

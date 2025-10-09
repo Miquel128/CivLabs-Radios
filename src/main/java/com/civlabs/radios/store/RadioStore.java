@@ -33,6 +33,13 @@ public class RadioStore {
         radios.put(r.getId(), r);
         saveAll();
     }
+    public Optional<Radio> byOperator(UUID operatorId) {
+        if (operatorId == null) return Optional.empty();
+        return getAll().stream()
+                .filter(r -> operatorId.equals(r.getOperator()))
+                .findFirst();
+    }
+
 
     public synchronized Radio get(UUID id) {
         return radios.get(id);

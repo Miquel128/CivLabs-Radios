@@ -63,6 +63,8 @@ messages:
   operator_info: "<gray>Radio Operator: <yellow>{operator}</yellow></gray><newline><gray>Status: {status}</gray>"
   no_operator: "<gray>This radio is currently <red>inactive</red>.</gray><newline><gray>No operator assigned.</gray>"
 
+speakerRadius: 30
+
 # Debug logging
 debug:
   enabled: false
@@ -73,3 +75,13 @@ voice:
   txGroupPrefix: "TX "
   txGroupPersistent: true
   txGroupHidden: true
+  mute_direct: false
+
+  # Interference / static settings
+  interference:
+    enabled: true
+    farDistance: 2000.0     # where noise plateaus
+    maxNoiseDb: -18.0       # peak noise loudness at/after farDistance (negative dBFS)
+
+  # SVC sample rate (48k by default)
+  sampleRate: 48000
