@@ -23,6 +23,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.util.UUID;
 
@@ -134,16 +135,25 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         }
         return false;
     }
-
-    public boolean canOperate(Player p) { return true; }
-
     public boolean enableRadio(Radio r, Player operator, int txFreq) {
         if (!canOperate(operator)) return false;
 
-        if (!freqManager.claim(txFreq, r.getId())) {
-            operator.sendMessage(color(getConfig().getString("messages.freq_in_use", "That frequency is already in use.")));
+        // require fuel > 0
+        if (r.getFuelSeconds() <= 0) {
+            operator.sendMessage(net.kyori.adventure.text.Component.text(
+                    "Radio has no fuel. Insert copper (ingots/blocks) into the orange slot."
+            ));
+            sounds().playError(operator);
             return false;
         }
+
+        if (!freqManager.claim(txFreq, r.getId())) {
+            operator.sendMessage(color(getConfig().getString(
+                    "messages.freq_in_use", "That frequency is already in use."
+            )));
+            return false;
+        }
+
         r.setTransmitFrequency(txFreq);
         r.setOperator(operator.getUniqueId());
         r.setEnabled(true);
@@ -154,6 +164,8 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
                 .replace("{freq}", String.valueOf(txFreq))));
         return true;
     }
+
+    public boolean canOperate(Player p) { return true; }
 
     public void disableRadioIfEnabled(Radio r, DisableReason reason) {
         if (!r.isEnabled()) return;

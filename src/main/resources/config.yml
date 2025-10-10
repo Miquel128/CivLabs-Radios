@@ -55,13 +55,14 @@ crafting:
 # Messages (MiniMessage format)
 messages:
   freq_in_use: "<red>Frequency {freq} is already in use.</red>"
-  enabled: "<green>Radio enabled on frequency {freq}.</green>"
-  disabled: "<yellow>Radio disabled: {reason}.</yellow>"
-  mode_changed: "<gold>Radio mode changed to {mode} ({maxFreq} frequencies). All out-of-range radios have been disabled.</gold>"
-  dimension_mismatch: "<red>This radio is bound to the {dimension}. You are in {current}.</red>"
-  freq_out_of_range: "<red>Frequency {freq} is out of range. Switch to slider mode for more frequencies.</red>"
-  operator_info: "<gray>Radio Operator: <yellow>{operator}</yellow></gray><newline><gray>Status: {status}</gray>"
-  no_operator: "<gray>This radio is currently <red>inactive</red>.</gray><newline><gray>No operator assigned.</gray>"
+  enabled: "<green>Radio enabled on frequency <yellow>{freq}</yellow>.</green>"
+  disabled: "<yellow>Radio disabled: <gold>{reason}</gold>.</yellow>"
+  mode_changed: "<gold>Radio mode changed to <yellow>{mode}</yellow> (<yellow>{maxFreq}</yellow> frequencies). All out-of-range radios have been disabled.</gold>"
+  dimension_mismatch: "<red>This radio is bound to the <yellow>{dimension}</yellow>. You are in <yellow>{current}</yellow>.</red>"
+  freq_out_of_range: "<red>Frequency <yellow>{freq}</yellow> is out of range. Switch to slider mode for more frequencies.</red>"
+  operator_info: "<gray>Radio Operator: <yellow>{operator}</yellow></gray><newline/><gray>Status: <yellow>{status}</yellow></gray>"
+  no_operator: "<gray>This radio is currently <red>inactive</red>.</gray><newline/><gray>No operator assigned.</gray>"
+
 
 speakerRadius: 30
 

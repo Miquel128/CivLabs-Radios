@@ -9,6 +9,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -22,20 +23,25 @@ public class RadioGui {
     private static final int ROWS = 3;
     private static final int SIZE = ROWS * 9;
 
-    // page state per player
     private static final Map<UUID, Integer> playerPages = new HashMap<>();
 
-    // plain names (no § codes) so click matching works
+    // green stash (index 1); orange no longer stores items
+    private static final Map<UUID, ItemStack[]> radioStash = new HashMap<>();
+
+    private static final int SLOT_STATUS = 18;
+    private static final int SLOT_PREV   = 19;
+    private static final int SLOT_LEFT_FUEL   = 21; // ORANGE fuel slot (consumes copper)
+    private static final int SLOT_TOGGLE = 22;
+    private static final int SLOT_RIGHT_STASH = 23; // GREEN stash slot
+    private static final int SLOT_NEXT   = 25;
+    private static final int SLOT_CLOSE  = 26;
+
     private static final String NAME_PREV = "◀ Previous Page";
     private static final String NAME_NEXT = "Next Page ▶";
 
-    // quick extractors
     private static final Pattern PAT_TX = Pattern.compile("^TX\\s+(\\d+)$");
     private static final Pattern PAT_RX = Pattern.compile("^RX\\s+(\\d+)$");
 
-    /* =========================
-       OPEN
-       ========================= */
     public static Inventory open(CivLabsRadiosPlugin plugin, Player viewer, Radio r) {
         if (plugin.getRadioMode() == RadioMode.SLIDER) {
             SliderGui.open(plugin, viewer, r);
@@ -63,7 +69,7 @@ public class RadioGui {
 
         // Row 1: TX
         for (int f = startFreq; f <= endFreq; f++) {
-            int slot = f - startFreq; // 0..8
+            int slot = f - startFreq;
             boolean locked = plugin.isFrequencyLockedFor(f, r.getId());
             boolean selected = (r.getTransmitFrequency() == f);
             inv.setItem(slot, txItem(f, locked, selected));
@@ -71,24 +77,30 @@ public class RadioGui {
 
         // Row 2: RX
         for (int f = startFreq; f <= endFreq; f++) {
-            int slot = 9 + (f - startFreq); // 9..17
+            int slot = 9 + (f - startFreq);
             boolean selected = (r.getListenFrequency() == f);
             inv.setItem(slot, rxItem(f, selected));
         }
 
         // Row 3: controls
-        inv.setItem(18, statusItem(r));
-        inv.setItem(22, toggleItem(r.isEnabled()));
-        inv.setItem(26, closeItem());
+        inv.setItem(SLOT_STATUS, statusItem(r));                 // shows Fuel too
+        inv.setItem(SLOT_TOGGLE, toggleItem(r.isEnabled()));
+        inv.setItem(SLOT_CLOSE, closeItem());
 
-        // Row 3: pagination arrows (plain names!)
+        // Orange: always show pane (fuel input)
+        inv.setItem(SLOT_LEFT_FUEL, placeholderPane(false));
+        // Green: stash (shows stored item if present)
+        ItemStack[] stash = radioStash.computeIfAbsent(r.getId(), id -> new ItemStack[2]);
+        inv.setItem(SLOT_RIGHT_STASH, stash[1] != null ? stash[1].clone() : placeholderPane(true));
+
+        // Pagination arrows
         if (page > 0) {
             ItemStack prev = new ItemStack(Material.ARROW);
             ItemMeta meta = prev.getItemMeta();
             meta.displayName(Component.text(NAME_PREV));
             meta.lore(List.of(Component.text("Go to page " + page)));
             prev.setItemMeta(meta);
-            inv.setItem(19, prev);
+            inv.setItem(SLOT_PREV, prev);
         }
         if (page < totalPages - 1) {
             ItemStack next = new ItemStack(Material.ARROW);
@@ -96,18 +108,99 @@ public class RadioGui {
             meta.displayName(Component.text(NAME_NEXT));
             meta.lore(List.of(Component.text("Go to page " + (page + 2))));
             next.setItemMeta(meta);
-            inv.setItem(25, next);
+            inv.setItem(SLOT_NEXT, next);
         }
 
         viewer.openInventory(inv);
         return inv;
     }
 
-    /* =========================
-       CLICK HANDLER
-       ========================= */
     public static void handleClick(CivLabsRadiosPlugin plugin, Player p, Radio r, InventoryClickEvent e) {
-        e.setCancelled(true); // keep GUI items in place
+        boolean topInv = e.getClickedInventory() != null && e.getClickedInventory().getHolder() instanceof RadioGuiHolder;
+        int rawSlot = e.getRawSlot();
+
+        // Block shift-clicks from player inv into GUI
+        if (!topInv && e.isShiftClick()) {
+            e.setCancelled(true);
+            return;
+        }
+        // Allow normal movement in player inv
+        if (!topInv) {
+            e.setCancelled(false);
+            return;
+        }
+
+        // Top inv
+        boolean isFuelSlot  = (rawSlot == SLOT_LEFT_FUEL);
+        boolean isStashSlot = (rawSlot == SLOT_RIGHT_STASH);
+
+        if (isFuelSlot) {
+            e.setCancelled(true);
+
+            ItemStack cursor = e.getCursor();
+            if (cursor == null || cursor.getType() == Material.AIR) {
+                // empty click on fuel slot does nothing
+                return;
+            }
+
+            Material t = cursor.getType();
+            int amount = cursor.getAmount();
+            int perItemSeconds = 0;
+
+            if (t == Material.COPPER_INGOT) {
+                perItemSeconds = 3; // 3 sec per ingot
+            } else if (t == Material.COPPER_BLOCK) {
+                perItemSeconds = 27; // 27 sec per block
+            } else {
+                plugin.sounds().playError(p);
+                p.sendMessage(Component.text("Fuel slot accepts only Copper Ingots or Copper Blocks."));
+                return;
+            }
+
+            int add = perItemSeconds * Math.max(1, amount);
+            r.addFuelSeconds(add);
+            plugin.store().save(r);
+
+            // consume from cursor
+            p.setItemOnCursor(null);
+
+            // refresh status to show new fuel
+            e.getInventory().setItem(SLOT_STATUS, statusItem(r));
+            plugin.sounds().playFrequencyChange(p);
+            return;
+        }
+
+        if (isStashSlot) {
+            // Green stash: deposit/retrieve
+            e.setCancelled(true);
+            ItemStack[] stash = radioStash.computeIfAbsent(r.getId(), id -> new ItemStack[2]);
+            int idx = 1; // right slot
+
+            ItemStack cursor = e.getCursor();
+            boolean cursorHasItem = cursor != null && cursor.getType() != Material.AIR;
+
+            if (cursorHasItem) {
+                if (stash[idx] == null) {
+                    stash[idx] = cursor.clone();
+                    p.setItemOnCursor(null);
+                    e.getInventory().setItem(rawSlot, stash[idx].clone());
+                    plugin.sounds().playFrequencyChange(p);
+                } else {
+                    plugin.sounds().playError(p);
+                }
+            } else {
+                if (stash[idx] != null) {
+                    p.setItemOnCursor(stash[idx].clone());
+                    stash[idx] = null;
+                    e.getInventory().setItem(rawSlot, placeholderPane(true));
+                    plugin.sounds().playFrequencyChange(p);
+                }
+            }
+            return;
+        }
+
+        // GUI slots handled by names below
+        e.setCancelled(true);
 
         ItemStack clicked = e.getCurrentItem();
         if (clicked == null) return;
@@ -117,7 +210,6 @@ public class RadioGui {
         String name = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
                 .serialize(meta.displayName()).trim();
 
-        // Pagination
         if (NAME_PREV.equals(name)) {
             int currentPage = playerPages.getOrDefault(p.getUniqueId(), 0);
             open(plugin, p, r, currentPage - 1);
@@ -129,7 +221,6 @@ public class RadioGui {
             return;
         }
 
-        // TX select
         Matcher mTx = PAT_TX.matcher(name);
         if (mTx.matches()) {
             int f = Integer.parseInt(mTx.group(1));
@@ -146,7 +237,6 @@ public class RadioGui {
             return;
         }
 
-        // RX select
         Matcher mRx = PAT_RX.matcher(name);
         if (mRx.matches()) {
             int f = Integer.parseInt(mRx.group(1));
@@ -158,8 +248,12 @@ public class RadioGui {
             return;
         }
 
-        // toggles
         if ("Enable".equals(name)) {
+            if (r.getFuelSeconds() <= 0) {
+                p.sendMessage(Component.text("Radio has no fuel. Insert copper into the orange slot."));
+                plugin.sounds().playError(p);
+                return;
+            }
             if (r.getTransmitFrequency() > 0) {
                 plugin.enableRadio(r, p, r.getTransmitFrequency());
             }
@@ -176,9 +270,12 @@ public class RadioGui {
         }
     }
 
-    /* =========================
-       ITEM FACTORIES
-       ========================= */
+    public static void handleDrag(CivLabsRadiosPlugin plugin, Player p, Radio r, InventoryDragEvent e) {
+        if (e.getInventory().getHolder() instanceof RadioGuiHolder) {
+            e.setCancelled(true);
+        }
+    }
+
     private static TextColor getDimensionColor(String dimension) {
         return switch (dimension) {
             case "NETHER" -> TextColor.color(200, 50, 50);
@@ -230,8 +327,15 @@ public class RadioGui {
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text("§7TX: §e" + (r.getTransmitFrequency() > 0 ? r.getTransmitFrequency() : "None")));
         lore.add(Component.text("§7RX: §e" + (r.getListenFrequency() > 0 ? r.getListenFrequency() : "None")));
+        lore.add(Component.text("§7Fuel: §e" + r.getFuelSeconds() + "s"));
         lore.add(Component.text("§7Status: " + (r.isEnabled() ? "§aON" : "§cOFF")));
         lore.add(Component.text("§7Dimension: §e" + r.getDimension()));
         return named(Material.BOOK, "§6Radio Status", lore);
+    }
+
+    private static ItemStack placeholderPane(boolean green) {
+        Material mat = green ? Material.LIME_STAINED_GLASS_PANE : Material.ORANGE_STAINED_GLASS_PANE;
+        String name = green ? "Green Slot" : "Orange Slot";
+        return named(mat, name, List.of(Component.text(green ? "§7Storage slot" : "§7Fuel: copper ingots/blocks")));
     }
 }

@@ -1,4 +1,3 @@
-
 package com.civlabs.radios.tasks;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
@@ -6,43 +5,48 @@ import com.civlabs.radios.model.DisableReason;
 import com.civlabs.radios.model.Radio;
 import com.civlabs.radios.store.RadioStore;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.function.BiConsumer;
 
 public class OperatorGuardTask {
+
     private final CivLabsRadiosPlugin plugin;
-    private final Runnable task;
-    private int taskId = -1;
+    private final RadioStore store;
+    private final BiConsumer<Radio, DisableReason> disableFn;
+    private BukkitTask task;
 
-    public OperatorGuardTask(CivLabsRadiosPlugin plugin, RadioStore store, BiConsumer<Radio, DisableReason> disabler) {
+    public OperatorGuardTask(CivLabsRadiosPlugin plugin, RadioStore store, BiConsumer<Radio, DisableReason> disableFn) {
         this.plugin = plugin;
-        this.task = () -> {
-            int radius = plugin.getConfig().getInt("operatorRadius", 30);
-            int radiusSq = radius * radius;
-
-            for (Radio radio : store.getAll()) {
-                if (!radio.isEnabled() || radio.getOperator() == null) continue;
-
-                Player p = Bukkit.getPlayer(radio.getOperator());
-                Location loc = radio.getLocation();
-
-                if (p == null || !p.isOnline() || loc == null ||
-                    !p.getWorld().equals(loc.getWorld()) ||
-                    p.getLocation().distanceSquared(loc) > radiusSq) {
-                    disabler.accept(radio, DisableReason.OPERATOR_LOST);
-                }
-            }
-        };
+        this.store = store;
+        this.disableFn = disableFn;
     }
 
     public void start() {
         stop();
-        this.taskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, task, 40L, 40L);
+        // run every 20 ticks (1s)
+        this.task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            for (Radio r : store.getAll()) {
+                if (!r.isEnabled()) continue;
+
+                // Tick fuel down while enabled (simple baseline).
+                if (r.getFuelSeconds() > 0) {
+                    r.setFuelSeconds(r.getFuelSeconds() - 1);
+                    store.save(r);
+                }
+
+                if (r.getFuelSeconds() <= 0) {
+                    // Out of fuel -> disable
+                    disableFn.accept(r, DisableReason.FUEL);
+                }
+            }
+        }, 20L, 20L);
     }
 
     public void stop() {
-        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+        if (task != null) {
+            task.cancel();
+            task = null;
+        }
     }
 }

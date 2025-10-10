@@ -6,5 +6,6 @@ public enum DisableReason {
     BLOCK_BROKEN,
     SERVER_STOP,
     ADMIN,
-    MODE_CHANGED
+    MODE_CHANGED,
+    FUEL
 }

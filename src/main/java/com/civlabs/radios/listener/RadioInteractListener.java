@@ -108,4 +108,18 @@ public class RadioInteractListener implements Listener {
             RadioGui.handleClick(plugin, p, r, e);
         }
     }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInvDrag(org.bukkit.event.inventory.InventoryDragEvent e) {
+        if (!(e.getWhoClicked() instanceof Player p)) return;
+        if (!(e.getInventory().getHolder() instanceof RadioGuiHolder holder)) return;
+
+        com.civlabs.radios.model.Radio r = plugin.store().get(holder.getRadioId());
+        if (r == null) {
+            p.closeInventory();
+            return;
+        }
+
+        com.civlabs.radios.gui.RadioGui.handleDrag(plugin, p, r, e);
+    }
 }
