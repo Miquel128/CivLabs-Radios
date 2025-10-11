@@ -1,4 +1,3 @@
-
 package com.civlabs.radios.listener;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
@@ -38,7 +37,7 @@ public class RadioPlaceListener implements Listener {
         Radio r = new Radio(id, b.getLocation(), e.getPlayer().getUniqueId());
         plugin.store().create(r);
         plugin.sounds().playClick(e.getPlayer());
-        
+
         plugin.dbg("Placed radio " + id + " at " + b.getLocation() + " in " + r.getDimension());
     }
 }

@@ -1,7 +1,17 @@
 package com.civlabs.radios.model;
 
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+
 import java.util.UUID;
 
+/**
+ * Radio data model — includes:
+ * - Fuel tracking (remaining seconds)
+ * - Lifetime fuel accumulation (totalFuelAddedSeconds)
+ * - Antenna / range info (rangeStep 1..5, derived final range)
+ */
 public class Radio {
 
     private UUID id;
@@ -14,15 +24,18 @@ public class Radio {
     private int listenFrequency;
     private UUID operator;
 
-    // NEW: fuel in seconds
-    private int fuelSeconds;
+    // --- Fuel ---
+    private int fuelSeconds;              // Remaining seconds of fuel
+    private int totalFuelAddedSeconds;    // Lifetime count of seconds added from copper
 
-    // Default empty constructor (used by RadioStore)
-    public Radio() {
-    }
+    // --- Antenna / Range ---
+    private int antennaCount;
+    private int maxRangeBlocks;
+    private int rangeStep = 5; // 1..5 (final = rangeStep / 5 * maxRangeBlocks)
 
-    // Convenience constructor used by RadioPlaceListener
-    public Radio(UUID id, org.bukkit.Location loc, UUID owner) {
+    public Radio() {}
+
+    public Radio(UUID id, Location loc, UUID owner) {
         this.id = id;
         if (loc != null && loc.getWorld() != null) {
             this.world = loc.getWorld().getName();
@@ -32,13 +45,9 @@ public class Radio {
             this.dimension = loc.getWorld().getEnvironment().name();
         }
         this.owner = owner;
-        this.enabled = false;
-        this.transmitFrequency = 0;
-        this.listenFrequency = 0;
-        this.operator = null;
-        this.fuelSeconds = 0;
     }
 
+    // --- Basic info ---
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
 
@@ -72,16 +81,43 @@ public class Radio {
     public UUID getOperator() { return operator; }
     public void setOperator(UUID operator) { this.operator = operator; }
 
-    // ----- FUEL -----
+    // --- Fuel ---
     public int getFuelSeconds() { return fuelSeconds; }
-    public void setFuelSeconds(int fuelSeconds) { this.fuelSeconds = Math.max(0, fuelSeconds); }
-    public void addFuelSeconds(int add) { this.fuelSeconds = Math.max(0, this.fuelSeconds + Math.max(0, add)); }
+    public void setFuelSeconds(int fuelSeconds) {
+        this.fuelSeconds = Math.max(0, fuelSeconds);
+    }
+    public void addFuelSeconds(int add) {
+        this.fuelSeconds = Math.max(0, this.fuelSeconds + Math.max(0, add));
+    }
     public boolean hasFuel() { return fuelSeconds > 0; }
 
-    // Returns the Bukkit Location of this radio (if world exists)
-    public org.bukkit.Location getLocation() {
-        org.bukkit.World w = org.bukkit.Bukkit.getWorld(this.world);
+    // --- Lifetime fuel total ---
+    public int getTotalFuelAddedSeconds() { return totalFuelAddedSeconds; }
+    public void setTotalFuelAddedSeconds(int totalFuelAddedSeconds) {
+        this.totalFuelAddedSeconds = Math.max(0, totalFuelAddedSeconds);
+    }
+    public void addTotalFuelAddedSeconds(int add) {
+        if (add > 0) this.totalFuelAddedSeconds += add;
+    }
+
+    // --- Range / antenna ---
+    public int getAntennaCount() { return antennaCount; }
+    public void setAntennaCount(int antennaCount) { this.antennaCount = Math.max(0, antennaCount); }
+
+    public int getMaxRangeBlocks() { return maxRangeBlocks; }
+    public void setMaxRangeBlocks(int maxRangeBlocks) { this.maxRangeBlocks = Math.max(0, maxRangeBlocks); }
+
+    public int getRangeStep() { return rangeStep; }
+    public void setRangeStep(int rangeStep) { this.rangeStep = Math.min(5, Math.max(1, rangeStep)); }
+
+    /** Final selected range in blocks = (rangeStep/5) * maxRangeBlocks */
+    public int getFinalRangeBlocks() {
+        return (int) Math.floor((getRangeStep() / 5.0) * getMaxRangeBlocks());
+    }
+
+    public Location getLocation() {
+        World w = Bukkit.getWorld(this.world);
         if (w == null) return null;
-        return new org.bukkit.Location(w, x, y, z);
+        return new Location(w, x, y, z);
     }
 }

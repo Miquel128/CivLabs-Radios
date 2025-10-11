@@ -78,8 +78,14 @@ public class RadioStore {
             r.setListenFrequency(cfg.getInt(key + ".rx"));
             String op = cfg.getString(key + ".operator");
             r.setOperator(op == null ? null : UUID.fromString(op));
-            // NEW: fuel
             r.setFuelSeconds(cfg.getInt(key + ".fuel", 0));
+
+            // NEW persisted fields
+            r.setAntennaCount(cfg.getInt(key + ".antenna", 0));
+            r.setMaxRangeBlocks(cfg.getInt(key + ".maxRange", 0));
+            r.setRangeStep(cfg.getInt(key + ".rangeStep", 5));
+            r.setTotalFuelAddedSeconds(cfg.getInt(key + ".fuelTotal", 0));
+
             radios.put(id, r);
         }
     }
@@ -98,8 +104,13 @@ public class RadioStore {
             cfg.set(k + ".tx", r.getTransmitFrequency());
             cfg.set(k + ".rx", r.getListenFrequency());
             cfg.set(k + ".operator", r.getOperator() == null ? null : r.getOperator().toString());
-            // NEW: fuel
             cfg.set(k + ".fuel", r.getFuelSeconds());
+
+            // NEW persisted fields
+            cfg.set(k + ".antenna", r.getAntennaCount());
+            cfg.set(k + ".maxRange", r.getMaxRangeBlocks());
+            cfg.set(k + ".rangeStep", r.getRangeStep());
+            cfg.set(k + ".fuelTotal", r.getTotalFuelAddedSeconds());
         }
         try { cfg.save(file); } catch (IOException e) { e.printStackTrace(); }
     }

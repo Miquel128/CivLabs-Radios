@@ -1,99 +1,96 @@
-
 package com.civlabs.radios.listener;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
-import com.civlabs.radios.core.RadioMode;
-import com.civlabs.radios.gui.AnvilInputGui;
 import com.civlabs.radios.gui.RadioGui;
-import com.civlabs.radios.gui.RadioGuiHolder;
-import com.civlabs.radios.gui.SliderGui;
-import com.civlabs.radios.gui.FrequencyOverviewGui;
 import com.civlabs.radios.model.Radio;
-import com.civlabs.radios.util.Keys;
-import net.kyori.adventure.text.Component;
-import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
-import org.bukkit.block.TileState;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.inventory.InventoryHolder;
 
-import java.util.UUID;
+import java.util.Set;
 
 public class RadioInteractListener implements Listener {
+
     private final CivLabsRadiosPlugin plugin;
 
     public RadioInteractListener(CivLabsRadiosPlugin plugin) {
         this.plugin = plugin;
-        Bukkit.getPluginManager().registerEvents(new AnvilInputGui(), plugin);
-        Bukkit.getPluginManager().registerEvents(new FrequencyOverviewGui(), plugin);
     }
 
-    @EventHandler
+    /* =========================
+       OPEN RADIO GUI ON RIGHT-CLICK
+       ========================= */
+    @EventHandler(ignoreCancelled = true)
     public void onUse(PlayerInteractEvent e) {
-        if (e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getClickedBlock() == null) return;
+        if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (e.getClickedBlock() == null) return;
 
-        Block block = e.getClickedBlock();
-        if (!(block.getState() instanceof TileState ts)) return;
+        Block b = e.getClickedBlock();
 
-        String tag = ts.getPersistentDataContainer().get(Keys.RADIO_ID, PersistentDataType.STRING);
-        if (tag == null) return;
+        // We rely on stored location → radio mapping, so no hard Material check needed.
+        // If you want to optimize, you could check for Material.SMOKER here.
 
-        e.setCancelled(true);
-        UUID id = UUID.fromString(tag);
-        Radio r = plugin.store().get(id);
-        if (r == null) return;
+        plugin.store().byLocation(b.getLocation()).ifPresent(r -> {
+            // Cancel default container opening and show our GUI
+            e.setCancelled(true);
 
-        Player p = e.getPlayer();
-        
-        // Shift-right-click shows operator info
-        if (p.isSneaking()) {
-            if (r.isEnabled() && r.getOperator() != null) {
-                OfflinePlayer op = Bukkit.getOfflinePlayer(r.getOperator());
-                String opName = op.getName() != null ? op.getName() : "Unknown";
-                
-                p.sendMessage(Component.text("§8§m                                    "));
-                p.sendMessage(Component.text("§6📻 Radio Information"));
-                p.sendMessage(Component.text("§7Operator: §e" + opName));
-                p.sendMessage(Component.text("§7Status: §aActive"));
-                p.sendMessage(Component.text("§7TX Frequency: §e" + r.getTransmitFrequency()));
-                p.sendMessage(Component.text("§7RX Frequency: §e" + r.getListenFrequency()));
-                p.sendMessage(Component.text("§7Dimension: §e" + r.getDimension()));
-                p.sendMessage(Component.text("§8§m                                    "));
-            } else {
-                p.sendMessage(Component.text("§8§m                                    "));
-                p.sendMessage(Component.text("§6📻 Radio Information"));
-                p.sendMessage(Component.text("§7Status: §cInactive"));
-                p.sendMessage(Component.text("§7No operator assigned"));
-                p.sendMessage(Component.text("§7Right-click to configure"));
-                p.sendMessage(Component.text("§8§m                                    "));
-            }
+            Player p = e.getPlayer();
+            RadioGui.open(plugin, p, r);
             plugin.sounds().playClick(p);
-            return;
-        }
-        
-        // Normal right-click opens GUI
-        plugin.sounds().playClick(p);
-        
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            if (plugin.getRadioMode() == RadioMode.SLIDER) {
-                SliderGui.open(plugin, p, r);
-            } else {
-                RadioGui.open(plugin, p, r);
-            }
         });
     }
 
+    /* =========================
+       GUI CLICK HANDLING
+       ========================= */
     @EventHandler
     public void onInvClick(InventoryClickEvent e) {
         if (!(e.getWhoClicked() instanceof Player p)) return;
-        if (!(e.getInventory().getHolder() instanceof RadioGuiHolder holder)) return;
 
+        // Only handle clicks for our Radio GUI
+        InventoryHolder topHolder = e.getView().getTopInventory().getHolder();
+        if (!(topHolder instanceof RadioGui.RadioGuiHolder holder)) return;
+
+        // Cancel top inv by default; allow specific actions inside RadioGui.handleClick
+        int topSize = e.getView().getTopInventory().getSize();
+        boolean inTop = e.getRawSlot() >= 0 && e.getRawSlot() < topSize;
+        if (inTop) {
+            e.setCancelled(true);
+        } else if (e.isShiftClick()) {
+            e.setCancelled(true);
+        }
+
+        Radio r = plugin.store().get(holder.getRadioId());
+        if (r == null) {
+            p.closeInventory();
+            return;
+        }
+
+        RadioGui.handleClick(plugin, p, r, e);
+    }
+
+    /* =========================
+       GUI DRAG HANDLING
+       ========================= */
+    @EventHandler
+    public void onInvDrag(InventoryDragEvent e) {
+        if (!(e.getWhoClicked() instanceof Player p)) return;
+
+        InventoryHolder topHolder = e.getView().getTopInventory().getHolder();
+        if (!(topHolder instanceof RadioGui.RadioGuiHolder holder)) return;
+
+        int topSize = e.getView().getTopInventory().getSize();
+        Set<Integer> raw = e.getRawSlots();
+        boolean touchesTop = raw.stream().anyMatch(s -> s < topSize);
+        if (!touchesTop) return;
+
+        // Cancel by default; RadioGui.handleDrag will apply allowed moves (fuel/stash)
         e.setCancelled(true);
 
         Radio r = plugin.store().get(holder.getRadioId());
@@ -102,24 +99,12 @@ public class RadioInteractListener implements Listener {
             return;
         }
 
-        if (plugin.getRadioMode() == RadioMode.SLIDER) {
-            SliderGui.handleClick(plugin, p, r, e);
-        } else {
-            RadioGui.handleClick(plugin, p, r, e);
-        }
+        RadioGui.handleDrag(plugin, p, r, e);
     }
 
-    @EventHandler(ignoreCancelled = true)
-    public void onInvDrag(org.bukkit.event.inventory.InventoryDragEvent e) {
-        if (!(e.getWhoClicked() instanceof Player p)) return;
-        if (!(e.getInventory().getHolder() instanceof RadioGuiHolder holder)) return;
-
-        com.civlabs.radios.model.Radio r = plugin.store().get(holder.getRadioId());
-        if (r == null) {
-            p.closeInventory();
-            return;
-        }
-
-        com.civlabs.radios.gui.RadioGui.handleDrag(plugin, p, r, e);
+    @EventHandler
+    public void onClose(org.bukkit.event.inventory.InventoryCloseEvent e) {
+        if (!(e.getPlayer() instanceof Player p)) return;
+        RadioGui.onClose(p, e.getInventory());
     }
 }

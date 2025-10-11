@@ -1,4 +1,3 @@
-
 package com.civlabs.radios.listener;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
@@ -41,7 +40,7 @@ public class RadioBreakListener implements Listener {
             e.setDropItems(false);
             b.getWorld().dropItemNaturally(b.getLocation(), ItemUtil.createRadioItem(plugin));
         }
-        
+
         plugin.sounds().playClick(e.getPlayer());
     }
 }

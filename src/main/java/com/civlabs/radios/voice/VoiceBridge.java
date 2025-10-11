@@ -2,11 +2,13 @@ package com.civlabs.radios.voice;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
 import com.civlabs.radios.model.Radio;
+import com.civlabs.radios.util.RadioMath;
 import de.maxhenkel.voicechat.api.Group;
 import de.maxhenkel.voicechat.api.VoicechatConnection;
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
 import de.maxhenkel.voicechat.api.events.VoicechatServerStartedEvent;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -16,13 +18,10 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Smooth distance profile:
- *  - <= 80 blocks: no delay, clean
- *  - 80–600 blocks: increasing delay, still clean
- *  - 600–6000 blocks: static ramps in gently with delay growth
- *  - very late, soft drop chance at >2700 blocks
+ * Handles bridging voice packets and applying distance-based delay/static.
+ * Also refuses to play if the receiver has no vertical antenna stack.
  */
-public class VoiceBridge {
+    public class VoiceBridge {
 
     private final CivLabsRadiosPlugin plugin;
     private VoicechatServerApi api;
@@ -34,9 +33,6 @@ public class VoiceBridge {
         this.plugin = plugin;
     }
 
-    /* =========================
-       SERVER / VOICE LIFECYCLE
-       ========================= */
     public void onServerStarted(VoicechatServerStartedEvent event) {
         this.api = event.getVoicechat();
 
@@ -58,15 +54,11 @@ public class VoiceBridge {
         logDebug("Voice started: created " + txGroupIds.size() + " TX groups.");
     }
 
-    /* =========================
-       AUDIO HANDLING
-       ========================= */
     public void onMicPacket(MicrophonePacketEvent event) {
-        if (api == null) return;
+        if (api == null || event.getSenderConnection() == null) return;
 
         UUID talker = event.getSenderConnection().getPlayer().getUuid();
 
-        // Identify operator's transmitting radio
         Radio tx = plugin.store().getAll().stream()
                 .filter(Radio::isEnabled)
                 .filter(r -> r.getTransmitFrequency() > 0)
@@ -79,13 +71,8 @@ public class VoiceBridge {
         if (opusData == null || opusData.length == 0) return;
 
         int txFreq = tx.getTransmitFrequency();
-        int maxAudible = plugin.getConfig().getInt("speakerRadius", 30);
-
-        final Location txLoc = tx.getLocation();
+        Location txLoc = tx.getLocation();
         if (txLoc == null || txLoc.getWorld() == null) return;
-
-        // ✅ No longer muting or cancelling direct SVC proximity
-        // We let proximity VC coexist with the radio audio path.
 
         List<Radio> receivers = plugin.store().listenersOn(txFreq);
         if (receivers == null || receivers.isEmpty()) return;
@@ -94,62 +81,57 @@ public class VoiceBridge {
         final int sampleRate = plugin.getConfig().getInt("voice.sampleRate", 48000);
         final double maxNoiseDb = plugin.getConfig().getDouble("voice.interference.maxNoiseDb", -24.0);
         final double farDistance = plugin.getConfig().getDouble("voice.interference.farDistance", 6000.0);
+        final int maxAudible = plugin.getConfig().getInt("speakerRadius", 30);
 
         for (Radio rx : receivers) {
+            RadioMath.recomputeAntennaAndRange(rx);
+            if (rx.getAntennaCount() <= 0) {
+                UUID opId = rx.getOperator();
+                Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
+                if (op != null) op.sendMessage(Component.text("§cRadio cannot find any antennas above it."));
+                continue;
+            }
+
             Location rxLoc = rx.getLocation();
             if (rxLoc == null) continue;
 
-            // Ensure or refresh speaker
             LocationalSpeaker speaker = speakers.computeIfAbsent(rx.getId(),
                     id -> new LocationalSpeaker(api, rxLoc, maxAudible));
             speaker.ensureAt(rxLoc, maxAudible);
 
-            double dist;
-            if (rxLoc.getWorld() == null || !rxLoc.getWorld().equals(txLoc.getWorld())) {
-                dist = 10_000d; // cross-world
-            } else {
-                dist = txLoc.distance(rxLoc);
-            }
+            double dist = (rxLoc.getWorld() == null || !rxLoc.getWorld().equals(txLoc.getWorld()))
+                    ? 10000d
+                    : txLoc.distance(rxLoc);
 
             long delayTicks = delayTicksForDistance(dist);
             double dropChance = dropChanceForDistance(dist);
 
-            // Skip some frames at long range (gentle drop)
             if (dropChance > 0 && ThreadLocalRandom.current().nextDouble() < dropChance) {
-                logDebug("DROP tiny for RX " + rx.getId() + " dist=" + (int) dist + " p=" + String.format(Locale.US, "%.3f", dropChance));
+                logDebug("DROP tiny for RX " + rx.getId() + " dist=" + (int) dist);
                 continue;
             }
 
-            byte[] maybeMixed = opusData;
+            byte[] maybe = opusData;
 
-            // Add static only after ~600 blocks
             if (interferenceEnabled && dist > NOISE_CLEAR_RANGE) {
                 double f = Math.min(1.0, (dist - NOISE_CLEAR_RANGE) / Math.max(1.0, (farDistance - NOISE_CLEAR_RANGE)));
                 if (f < 0) f = 0;
 
-                // -60dB at start → up to maxNoiseDb at farDistance
                 double targetDb = -60.0 + (60.0 + maxNoiseDb) * f;
                 double noiseAmp = Interference.dbToLin(targetDb);
 
-                try {
-                    maybeMixed = mixStaticIntoOpus(opusData, noiseAmp, sampleRate);
-                } catch (Throwable t) {
-                    logDebug("Interference mix skipped: " + t.getClass().getSimpleName());
-                }
+                try { maybe = mixStaticIntoOpus(opusData, noiseAmp, sampleRate); }
+                catch (Throwable ignore) {}
             }
 
-            if (delayTicks <= 0) {
-                speaker.playFrame(maybeMixed);
-            } else {
-                final byte[] sendData = maybeMixed;
+            if (delayTicks <= 0) speaker.playFrame(maybe);
+            else {
+                final byte[] sendData = maybe;
                 Bukkit.getScheduler().runTaskLater(plugin, () -> speaker.playFrame(sendData), delayTicks);
             }
         }
     }
 
-    /* =========================
-       CODEC BRIDGE (decode/mix/encode)
-       ========================= */
     private byte[] mixStaticIntoOpus(byte[] opus, double noiseAmp, int sampleRate) throws Exception {
         Method createDec = api.getClass().getMethod("createDecoder");
         Method createEnc = api.getClass().getMethod("createEncoder");
@@ -174,19 +156,12 @@ public class VoiceBridge {
         return (byte[]) encode.invoke(encoder, pcm);
     }
 
-    /* =========================
-       DISTANCE PROFILE (smooth)
-       ========================= */
+    // distance profile
+    private static final int DELAY_CLEAR_RANGE = 80;
+    private static final int NOISE_CLEAR_RANGE = 600;
+    private static final double DELAY_PER_BLOCK = 0.0033;
+    private static final double JITTER_PCT = 0.05;
 
-    // Clean ranges
-    private static final int DELAY_CLEAR_RANGE = 80;    // delay starts beyond this
-    private static final int NOISE_CLEAR_RANGE = 600;   // static starts beyond this
-
-    // Delay scaling
-    private static final double DELAY_PER_BLOCK = 0.0033; // slower (3× less)
-    private static final double JITTER_PCT = 0.05;        // gentler jitter
-
-    // Drop chance distances (3× farther)
     private static final double D0 = NOISE_CLEAR_RANGE, P0 = 0.00;
     private static final double D1 = 2700.0,            P1 = 0.00;
     private static final double D2 = 3300.0,            P2 = 0.02;
@@ -223,10 +198,7 @@ public class VoiceBridge {
         return y0 + t * (y1 - y0);
     }
 
-    /* =========================
-       GROUP / SPEAKERS
-       ========================= */
-    public void bindOperator(Radio r, Player operator) {
+    public void bindOperator(Radio r, org.bukkit.entity.Player operator) {
         if (api == null) return;
         if (!plugin.getConfig().getBoolean("voice.isolateOperatorInTxGroup", false)) return;
 
@@ -245,10 +217,7 @@ public class VoiceBridge {
     }
 
     public void updateSpeakerFor(Radio r) {
-        Integer rx = r.getListenFrequency();
-        if (rx == null || rx < 1) {
-            removeSpeaker(r.getId());
-        }
+        if (r.getListenFrequency() < 1) removeSpeaker(r.getId());
     }
 
     public void removeSpeaker(UUID radioId) {
@@ -261,11 +230,6 @@ public class VoiceBridge {
         speakers.clear();
     }
 
-    public void tickSpeakers() { /* no-op */ }
-
-    /* =========================
-       DEBUG LOGGING
-       ========================= */
     private void logDebug(String msg) {
         if (plugin.getConfig().getBoolean("debug.voice", false)) {
             plugin.getLogger().info("[VoiceBridge] " + msg);
