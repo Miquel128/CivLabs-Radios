@@ -2,7 +2,6 @@ package com.civlabs.radios.voice;
 
 import com.civlabs.radios.CivLabsRadiosPlugin;
 import de.maxhenkel.voicechat.api.VoicechatApi;
-import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.VoicechatPlugin;
 import de.maxhenkel.voicechat.api.events.EventRegistration;
 import de.maxhenkel.voicechat.api.events.MicrophonePacketEvent;
@@ -31,10 +30,13 @@ public class RadioVoicePlugin implements VoicechatPlugin {
     @Override
     public void registerEvents(EventRegistration reg) {
         reg.registerEvent(VoicechatServerStartedEvent.class, this::onServerStarted);
-        reg.registerEvent(MicrophonePacketEvent.class, bridge::onMicPacket);
+        reg.registerEvent(MicrophonePacketEvent.class, this::onMicrophonePacket);
     }
 
     private void onServerStarted(VoicechatServerStartedEvent e) {
         bridge.onServerStarted(e);
+    }
+    private void onMicrophonePacket(MicrophonePacketEvent e){
+        bridge.onMicPacket(e);
     }
 }

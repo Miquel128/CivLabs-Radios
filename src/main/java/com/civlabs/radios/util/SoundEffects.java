@@ -29,7 +29,7 @@ public class SoundEffects {
         if (soundName == null || soundName.isEmpty()) return def;
 
         try {
-            return Sound.valueOf(soundName.toUpperCase());
+            return Sound.valueOf(soundName.toUpperCase()); // this is deprecated, need to change
         } catch (IllegalArgumentException ex) {
             plugin.getLogger().warning("[SoundEffects] Invalid sound name: '" + soundName + "' for key '" + configKey + "'");
             return def;

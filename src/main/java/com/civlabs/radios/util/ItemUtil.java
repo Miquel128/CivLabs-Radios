@@ -21,7 +21,7 @@ public class ItemUtil {
 
         int cmd = plugin.getConfig().getInt("crafting.customModelData", 0);
         if (cmd > 0) {
-            m.setCustomModelData(cmd);
+             m.setCustomModelData(cmd); // deprecated function, might need to change
         }
 
         it.setItemMeta(m);

@@ -1,0 +1,31 @@
+plugins {
+    id 'java'
+}
+
+group = "com.civlabs"
+version = "1.0.3"
+
+dependencies {
+
+    implementation "io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT"
+    implementation "de.maxhenkel.voicechat:voicechat-api:2.6.0"
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = "henkelmax.public"
+        url = 'https://maven.maxhenkel.de/repository/public'
+    }
+    // You need this maven repository if you want to use the paper dependency
+    maven {
+        url = "https://repo.papermc.io/repository/maven-public/"
+    }
+    mavenLocal()
+}
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+

@@ -33,34 +33,36 @@ public class OperatorGuardTask {
 
     public void start() {
         stop();
-        this.task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            for (Radio r : store.getAll()) {
-                if (!r.isEnabled()) continue;
-
-                // Update antenna & range each tick (cheap; ensures live structure)
-                RadioMath.recomputeAntennaAndRange(r);
-
-                if (r.getAntennaCount() <= 0 || r.getMaxRangeBlocks() <= 0) {
-                    disableFn.accept(r, DisableReason.ADMIN);
-                    UUID opId = r.getOperator();
-                    Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
-                    if (op != null) op.sendMessage(net.kyori.adventure.text.Component.text("§cNo vertical antenna stack found."));
-                    continue;
-                }
-
-                if (r.getFuelSeconds() > 0) {
-                    int burn = RadioMath.burnPerSecond(r.getFinalRangeBlocks()); // ceil(1.002^R - 1)
-                    r.setFuelSeconds(r.getFuelSeconds() - Math.max(1, burn));   // always at least 1/s
-                    store.save(r);
-                }
-
-                if (r.getFuelSeconds() <= 0) {
-                    disableFn.accept(r, DisableReason.FUEL);
-                }
-            }
-        }, 20L, 20L);
+        this.task = Bukkit.getScheduler().runTaskTimer(plugin,this::run, 20L, 20L);
     }
 
+    // function that gets run by the scheduler
+    private void run(){
+        for (Radio r : store.getAll()) {
+            if (!r.isEnabled()) continue;
+
+            // Update antenna & range each tick (cheap; ensures live structure)
+            RadioMath.recomputeAntennaAndRange(r);
+
+            if (r.getAntennaCount() <= 0 || r.getMaxRangeBlocks() <= 0) {
+                disableFn.accept(r, DisableReason.ADMIN);
+                UUID opId = r.getOperator();
+                Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
+                if (op != null) op.sendMessage(net.kyori.adventure.text.Component.text("§cNo vertical antenna stack found."));
+                continue;
+            }
+
+            if (r.getFuelSeconds() > 0) {
+                int burn = RadioMath.burnPerSecond(r.getFinalRangeBlocks()); // ceil(1.002^R - 1)
+                r.setFuelSeconds(r.getFuelSeconds() - Math.max(1, burn));   // always at least 1/s
+                store.save(r);
+            }
+
+            if (r.getFuelSeconds() <= 0) {
+                disableFn.accept(r, DisableReason.FUEL);
+            }
+        }
+    }
     public void stop() {
         if (task != null) {
             task.cancel();

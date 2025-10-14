@@ -1,5 +1,6 @@
 package com.civlabs.radios;
 
+import com.civlabs.radios.command.RadioTabCompleter;
 import com.civlabs.radios.core.FrequencyManager;
 import com.civlabs.radios.core.RadioMode;
 import com.civlabs.radios.listener.RadioBreakListener;
@@ -14,6 +15,7 @@ import com.civlabs.radios.util.Keys;
 import com.civlabs.radios.util.SoundEffects;
 import com.civlabs.radios.voice.RadioVoicePlugin;
 import com.civlabs.radios.voice.VoiceBridge;
+import com.civlabs.radios.util.RadioMath;
 import de.maxhenkel.voicechat.api.BukkitVoicechatService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -48,9 +50,28 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         String raw = getConfig().getString(path, "");
         return mm.deserialize(raw == null ? "" : raw);
     }
-
     @Override
     public void onEnable() {
+        
+        if(initialize()){
+            super.getLogger().info("CivLabsRadios enabled.");
+        }
+        else 
+            super.getLogger().info("CivLabRadio failed to initialize");
+    }
+    @Override
+    public void onDisable() {
+        if (guardTask != null) guardTask.stop();
+        if (voice != null) voice.shutdownAllSpeakers();
+        for (Radio r : radioStore.getAll()) {
+            if (r.isEnabled()) disableRadioIfEnabled(r, DisableReason.SERVER_STOP);
+        }
+        getLogger().info("CivLabsRadios disabled.");
+    }
+        private boolean initialize(){
+
+        if (getCommand("radio") != null) getCommand("radio").setTabCompleter(new RadioTabCompleter(this));
+
         saveDefaultConfig();
         Keys.init(this);
 
@@ -60,32 +81,26 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         this.radioStore = new RadioStore(getDataFolder().toPath().resolve("radios.yml"));
         this.freqManager = new FrequencyManager(getConfig().getInt("maxFrequencies", 10));
         this.voice = new VoiceBridge(this);
+        
         this.sounds = new SoundEffects(this);
 
         BukkitVoicechatService svc = getServer().getServicesManager().load(BukkitVoicechatService.class);
         if (svc != null) svc.registerPlugin(new RadioVoicePlugin(this, voice));
         else getLogger().warning("Simple Voice Chat not detected as a service.");
 
-        Bukkit.getPluginManager().registerEvents(new RadioPlaceListener(this), this);
-        Bukkit.getPluginManager().registerEvents(new RadioInteractListener(this), this);
-        Bukkit.getPluginManager().registerEvents(new RadioBreakListener(this), this);
+        registerListeners();
 
         ItemUtil.registerRecipeIfEnabled(this);
 
         this.guardTask = new OperatorGuardTask(this, radioStore, this::disableRadioIfEnabled);
         this.guardTask.start();
 
-        getLogger().info("CivLabsRadios enabled.");
+        return true;
     }
-
-    @Override
-    public void onDisable() {
-        if (guardTask != null) guardTask.stop();
-        if (voice != null) voice.shutdownAllSpeakers();
-        for (Radio r : radioStore.getAll()) {
-            if (r.isEnabled()) disableRadioIfEnabled(r, DisableReason.SERVER_STOP);
-        }
-        getLogger().info("CivLabsRadios disabled.");
+    private void registerListeners(){
+        Bukkit.getPluginManager().registerEvents(new RadioPlaceListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new RadioInteractListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new RadioBreakListener(this), this);
     }
     // Simple debug helper used by listeners/util classes
     public void dbg(String msg) {
@@ -105,19 +120,21 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
 
     // Frequency lock check used in GUI
     public boolean isFrequencyLockedFor(int f, UUID requesterRadioId) {
+        /*  Old code
         for (Radio r : radioStore.getAll()) {
             if (r.isEnabled() && r.getTransmitFrequency() == f && !r.getId().equals(requesterRadioId)) {
                 return true;
             }
         }
         return false;
+        */
+        return freqManager.isInUse(f,requesterRadioId);
     }
 
     public boolean canOperate(Player p) { return true; }
 
     public boolean enableRadio(Radio r, Player operator, int txFreq) {
         if (!canOperate(operator)) return false;
-
         // require fuel
         if (r.getFuelSeconds() <= 0) {
             operator.sendMessage(Component.text("Radio has no fuel. Insert copper (ingots/blocks) into the orange slot."));
@@ -126,7 +143,7 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         }
 
         // require antennas/range recomputed
-        com.civlabs.radios.util.RadioMath.recomputeAntennaAndRange(r);
+        RadioMath.recomputeAntennaAndRange(r);
         if (r.getAntennaCount() <= 0 || r.getMaxRangeBlocks() <= 0) {
             operator.sendMessage(Component.text("§cNo vertical antenna stack found."));
             sounds().playError(operator);
@@ -157,8 +174,7 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
     public void disableRadioIfEnabled(Radio r, DisableReason reason) {
         if (!r.isEnabled()) return;
 
-        if (r.getTransmitFrequency() > 0) freqManager.release(r.getTransmitFrequency(), r.getId());
-
+        freqManager.release(r.getTransmitFrequency(), r.getId());
         UUID op = r.getOperator();
         if (op != null) voice.unbindOperator(op, r.getTransmitFrequency());
 
@@ -176,7 +192,8 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         }
     }
 
-    // /radio (subset)
+
+    // /radio (subset), probably too long and should be put in a seperate CommandManager
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!command.getName().equalsIgnoreCase("radio")) return false;
@@ -185,8 +202,28 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
             sender.sendMessage("Use /radio give | /radio mode <simple|slider> [maxFreq] | /radio reload");
             return true;
         }
-
+        
         String sub = args[0].toLowerCase();
+        // special case for help
+        if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
+            sender.sendMessage(mm.deserialize("<gold>═══CivLabsRadios═══</gold>"));
+            sender.sendMessage(mm.deserialize("<yellow>/radio help</yellow> <gray>- Show this help</gray>"));
+            //sender.sendMessage(mm.deserialize("<yellow>/radio list</yellow> <gray>- List all radios</gray>"));
+            //sender.sendMessage(mm.deserialize("<yellow>/radio recipe</yellow> <gray>- Show crafting recipe</gray>"));
+            //sender.sendMessage(mm.deserialize("<yellow>/radio free <freq></yellow> <gray>- Force free a frequency (admin)</gray>"));
+            
+            //sender.sendMessage(mm.deserialize("<yellow>/radio coords <on|off|toggle></yellow> <gray>- Toggle coordinate display (admin)</gray>"));
+            //sender.sendMessage(mm.deserialize("<yellow>/radio debug <on|off|toggle></yellow> <gray>- Toggle debug mode (admin)</gray>"));
+            if(sender.hasPermission("civlabs.radio.admin")){
+                sender.sendMessage(mm.deserialize("<yellow>/radio give [amount] [player|@a]</yellow> <gray>- Give a radio (admin)</gray>"));
+                sender.sendMessage(mm.deserialize("<yellow>/radio mode <simple|slider> [maxFreq]</yellow> <gray>- Change radio mode (admin)</gray>"));
+                sender.sendMessage(mm.deserialize("<yellow>/radio reload</yellow> <gray>- Reload configuration (admin)</gray>"));
+            }
+            //sender.sendMessage(mm.deserialize("<yellow>/radio operatorMode <on|off|toggle></yellow> <gray>- Toggle operator system (admin)</gray>"));
+            //sender.sendMessage(mm.deserialize("<yellow>/radio radius</yellow> <gray>- Show/set operator/speaker radius (admin)</gray>"));
+            return true;
+        }
+        
         switch (sub) {
             case "give" -> {
                 if (!(sender instanceof Player p)) { sender.sendMessage("Players only."); return true; }
@@ -225,6 +262,7 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
                 for (Radio r : radioStore.getAll()) {
                     if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) disableRadioIfEnabled(r, DisableReason.ADMIN);
                 }
+                voice.loadConfig();
                 sender.sendMessage("Configuration reloaded.");
                 return true;
             }

@@ -21,40 +21,39 @@ import java.util.concurrent.ThreadLocalRandom;
  * Handles bridging voice packets and applying distance-based delay/static.
  * Also refuses to play if the receiver has no vertical antenna stack.
  */
-    public class VoiceBridge {
+public class VoiceBridge {
 
     private final CivLabsRadiosPlugin plugin;
     private VoicechatServerApi api;
 
     private final Map<Integer, UUID> txGroupIds = new HashMap<>();
     private final Map<UUID, LocationalSpeaker> speakers = new HashMap<>();
+    private boolean interferenceEnabled;
+    private int sampleRate;
+    private double maxNoiseDb;
+    private double farDistance;
+    private int maxAudible;
 
     public VoiceBridge(CivLabsRadiosPlugin plugin) {
         this.plugin = plugin;
+        loadConfig();
     }
 
     public void onServerStarted(VoicechatServerStartedEvent event) {
         this.api = event.getVoicechat();
 
-        final int max = plugin.getConfig().getInt("maxFrequencies", 10);
-        final boolean hidden = plugin.getConfig().getBoolean("voice.txGroupHidden", true);
-        final boolean persistent = plugin.getConfig().getBoolean("voice.txGroupPersistent", true);
-        final String prefix = plugin.getConfig().getString("voice.txGroupPrefix", "TX ");
-
-        txGroupIds.clear();
-        for (int f = 1; f <= max; f++) {
-            Group g = api.groupBuilder()
-                    .setName(prefix + f)
-                    .setHidden(hidden)
-                    .setPersistent(persistent)
-                    .setType(Group.Type.ISOLATED)
-                    .build();
-            txGroupIds.put(f, g.getId());
-        }
-        logDebug("Voice started: created " + txGroupIds.size() + " TX groups.");
+        logDebug("Voice started: created ");
     }
-
+    public void loadConfig(){
+        interferenceEnabled = plugin.getConfig().getBoolean("voice.interference.enabled", true);
+        sampleRate = plugin.getConfig().getInt("voice.sampleRate", 48000);
+        maxNoiseDb = plugin.getConfig().getDouble("voice.interference.maxNoiseDb", -24.0);
+        farDistance = plugin.getConfig().getDouble("voice.interference.farDistance", 6000.0);
+        maxAudible = plugin.getConfig().getInt("speakerRadius", 30);
+    }
+    
     public void onMicPacket(MicrophonePacketEvent event) {
+        // this function is too big
         if (api == null || event.getSenderConnection() == null) return;
 
         UUID talker = event.getSenderConnection().getPlayer().getUuid();
@@ -77,18 +76,16 @@ import java.util.concurrent.ThreadLocalRandom;
         List<Radio> receivers = plugin.store().listenersOn(txFreq);
         if (receivers == null || receivers.isEmpty()) return;
 
-        final boolean interferenceEnabled = plugin.getConfig().getBoolean("voice.interference.enabled", true);
-        final int sampleRate = plugin.getConfig().getInt("voice.sampleRate", 48000);
-        final double maxNoiseDb = plugin.getConfig().getDouble("voice.interference.maxNoiseDb", -24.0);
-        final double farDistance = plugin.getConfig().getDouble("voice.interference.farDistance", 6000.0);
-        final int maxAudible = plugin.getConfig().getInt("speakerRadius", 30);
+        loadConfig();
 
         for (Radio rx : receivers) {
             RadioMath.recomputeAntennaAndRange(rx);
             if (rx.getAntennaCount() <= 0) {
+                /* this isn't needed cause the operator of the listening radio doesn't matter
                 UUID opId = rx.getOperator();
                 Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
                 if (op != null) op.sendMessage(Component.text("§cRadio cannot find any antennas above it."));
+                */
                 continue;
             }
 
@@ -99,6 +96,7 @@ import java.util.concurrent.ThreadLocalRandom;
                     id -> new LocationalSpeaker(api, rxLoc, maxAudible));
             speaker.ensureAt(rxLoc, maxAudible);
 
+            // we should make it so that if it's not in the same world it doesn't work
             double dist = (rxLoc.getWorld() == null || !rxLoc.getWorld().equals(txLoc.getWorld()))
                     ? 10000d
                     : txLoc.distance(rxLoc);
