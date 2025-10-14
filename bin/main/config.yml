@@ -72,10 +72,6 @@ debug:
 
 # Voice chat integration
 voice:
-  isolateOperatorInTxGroup: true
-  txGroupPrefix: "TX "
-  txGroupPersistent: true
-  txGroupHidden: true
   mute_direct: false
 
   # Interference / static settings
