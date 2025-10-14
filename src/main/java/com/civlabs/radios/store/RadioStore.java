@@ -20,11 +20,6 @@ public class RadioStore {
         load();
     }
 
-    public synchronized void create(Radio r) {
-        radios.put(r.getId(), r);
-        saveAll();
-    }
-
     public synchronized void delete(UUID id) {
         radios.remove(id);
         saveAll();
@@ -34,20 +29,20 @@ public class RadioStore {
         radios.put(r.getId(), r);
         saveAll();
     }
-
+    
     public synchronized Radio get(UUID id) { return radios.get(id); }
 
     public synchronized List<Radio> getAll() {
         return new ArrayList<>(radios.values());
     }
-
+    // find the first radio at Location loc
     public synchronized Optional<Radio> byLocation(Location loc) {
         return radios.values().stream().filter(r ->
                 r.getWorld().equals(loc.getWorld().getName()) &&
                         r.getX() == loc.getBlockX() && r.getY() == loc.getBlockY() && r.getZ() == loc.getBlockZ()
         ).findFirst();
     }
-
+    // find the first radio operated by op
     public synchronized Optional<Radio> byOperator(UUID op) {
         return radios.values().stream().filter(r -> op.equals(r.getOperator())).findFirst();
     }

@@ -19,10 +19,11 @@ public class FrequencyManager {
         return maxFrequencies;
     }
 
+    // tries to claim the frequency for the radio passed, return true if successfully claimed the frequency
     public synchronized boolean claim(int f, UUID radioId) {
         if (f < 1 || f > maxFrequencies) return false;
-        UUID cur = active.get(f);
-        if (cur != null && !cur.equals(radioId)) return false;
+        if(isInUse(f, radioId)) return false;
+
         active.put(f, radioId);
         return true;
     }
@@ -41,7 +42,7 @@ public class FrequencyManager {
             }
         }
     }
-
+    // checks if the frequency f is in use by another radio that's not the one passed in
     public synchronized boolean isInUse(int f, UUID requesterRadioId) {
         UUID holder = active.get(f);
         return holder != null && !holder.equals(requesterRadioId);

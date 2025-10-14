@@ -31,7 +31,7 @@ public class RadioTabCompleter implements TabCompleter {
         if (!command.getName().equalsIgnoreCase("radio")) return Collections.emptyList();
 
         if (args.length == 0 || args.length == 1) {
-            return prefix(Arrays.asList("help", "give", "list", "free", "mode", "coords", "debug", "reload"),
+            return prefix(Arrays.asList("help", "give",  "mode", "reload"),
                     args.length == 0 ? "" : args[0]);
         }
 
@@ -46,6 +46,7 @@ public class RadioTabCompleter implements TabCompleter {
                 }
                 return Collections.emptyList();
             }
+            /* 
             case "coords":
             case "debug": {
                 if (args.length == 2) {
@@ -53,6 +54,7 @@ public class RadioTabCompleter implements TabCompleter {
                 }
                 return Collections.emptyList();
             }
+            */
             case "free": {
                 if (args.length == 2) {
                     Set<Integer> occupied = new TreeSet<>();

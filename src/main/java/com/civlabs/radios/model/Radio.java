@@ -26,12 +26,14 @@ public class Radio {
 
     // --- Fuel ---
     private int fuelSeconds;              // Remaining seconds of fuel
+
+    // remember to delete or disable this variable in release
     private int totalFuelAddedSeconds;    // Lifetime count of seconds added from copper
 
     // --- Antenna / Range ---
     private int antennaCount;
     private int maxRangeBlocks;
-    private int rangeStep = 5; // 1..5 (final = rangeStep / 5 * maxRangeBlocks)
+    private int rangeStep = 1; // 1..5 (final = rangeStep / 5 * maxRangeBlocks)
 
     public Radio() {}
 

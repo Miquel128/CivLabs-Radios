@@ -36,8 +36,7 @@ public class RadioGui {
 
     // Fuel burn rate (ingots per second) using f(x) = 1.002^x − 1, x = final range in blocks
     private static double fuelPerSecond(Radio r) {
-        int range = Math.max(0, r.getFinalRangeBlocks());
-        return Math.pow(1.002, range) - 1.0;
+        return RadioMath.burnPerSecond(r.getFinalRangeBlocks());
     }
 
     /** Holder to identify our GUI. */

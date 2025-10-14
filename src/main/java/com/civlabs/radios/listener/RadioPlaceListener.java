@@ -35,7 +35,7 @@ public class RadioPlaceListener implements Listener {
         ts.update();
 
         Radio r = new Radio(id, b.getLocation(), e.getPlayer().getUniqueId());
-        plugin.store().create(r);
+        plugin.store().save(r);
         plugin.sounds().playClick(e.getPlayer());
 
         plugin.dbg("Placed radio " + id + " at " + b.getLocation() + " in " + r.getDimension());
