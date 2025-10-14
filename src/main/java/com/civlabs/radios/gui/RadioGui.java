@@ -52,12 +52,12 @@ public class RadioGui {
 
     // Row 3 controls
     private static final int SLOT_STATUS = 18;
-    private static final int SLOT_PREV   = 19;
+    private static final int SLOT_INFO   = 19;
     private static final int SLOT_RANGE  = 20;
     private static final int SLOT_FUEL   = 21;
     private static final int SLOT_TOGGLE = 22;
     private static final int SLOT_STASH  = 23;
-    private static final int SLOT_INFO   = 24;
+    private static final int SLOT_PREV   = 24;
     private static final int SLOT_NEXT   = 25;
     private static final int SLOT_CLOSE  = 26;
 
@@ -262,7 +262,7 @@ public class RadioGui {
                 int amount = cursor.getAmount();
                 int secs = (t == Material.COPPER_INGOT) ? 3 * amount : 27 * amount;
                 r.addFuelSeconds(secs);
-                r.addTotalFuelAddedSeconds(secs); // lifetime counter
+                
                 plugin.store().save(r);
                 // consume cursor stack
                 cursor.setAmount(0);
@@ -311,6 +311,12 @@ public class RadioGui {
                 plugin.sounds().playError(p);
                 return;
             }
+            
+            // if the radio is enabled
+            if(r.isEnabled()){
+                plugin.freq().release(r.getTransmitFrequency(), r.getId());
+                plugin.freq().claim(f, r.getId()); 
+            }
             r.setTransmitFrequency(f);
             plugin.store().save(r);
             plugin.sounds().playFrequencyChange(p);
@@ -333,6 +339,9 @@ public class RadioGui {
         if ("Enable".equals(name)) {
             e.setCancelled(true);
             if (r.getTransmitFrequency() > 0) {
+                Optional<Radio> operatedRadio = plugin.store().byOperator(p.getUniqueId());
+                if( !operatedRadio.isEmpty() && operatedRadio.get().getId() != r.getId())
+                    plugin.disableRadioIfEnabled(operatedRadio.get(), com.civlabs.radios.model.DisableReason.OPERATOR_LOST);
                 plugin.enableRadio(r, p, r.getTransmitFrequency());
                 updateStatusItem(e.getInventory(), r);
                 e.getInventory().setItem(SLOT_TOGGLE, toggleItem(r.isEnabled()));
@@ -395,7 +404,7 @@ public class RadioGui {
 
             int secs = (t == Material.COPPER_INGOT) ? 3 * placed : 27 * placed;
             r.addFuelSeconds(secs);
-            r.addTotalFuelAddedSeconds(secs); // lifetime counter
+
             plugin.store().save(r);
 
             e.setCancelled(true);
@@ -495,8 +504,8 @@ public class RadioGui {
     }
 
     private static ItemStack statusItem(Radio r) {
-        // Convert internal seconds to ingots (1 ingot = 3s)
-        double fuelIngots = r.getFuelSeconds() / 3.0;
+    
+        double fuelIngots = r.getFuelSeconds();
         double burn = fuelPerSecond(r); // ingots per second
 
         List<Component> lore = new ArrayList<>();
@@ -504,9 +513,8 @@ public class RadioGui {
         lore.add(Component.text("§7RX: §e" + (r.getListenFrequency() > 0 ? r.getListenFrequency() : "None")));
         lore.add(Component.text("§7Status: " + (r.isEnabled() ? "§aON" : "§cOFF")));
         lore.add(Component.text("§7Dimension: §e" + r.getDimension()));
-        lore.add(Component.text("§7Fuel remaining: §e" + DF2.format(fuelIngots) + " ingots"));
-        lore.add(Component.text("§7Added total: §e" + r.getTotalFuelAddedSeconds() + "s"));
-        lore.add(Component.text("§7Burn: §e" + DF3.format(burn) + " ingots/s"));
+        lore.add(Component.text("§7Fuel remaining: §e" + DF2.format(fuelIngots) + " fuels"));
+        lore.add(Component.text("§7Burn: §e" + DF3.format(burn) + " fuel/s"));
         return named(Material.BOOK, "§6Radio Status", lore);
     }
 

@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public class FrequencyManager {
-    private final int maxFrequencies;
+    private int maxFrequencies;
     private final Map<Integer, UUID> active = new HashMap<>();
 
     public FrequencyManager(int maxFrequencies) {
@@ -18,7 +18,13 @@ public class FrequencyManager {
     public int getMaxFrequencies() {
         return maxFrequencies;
     }
+    public void setMaxFrecuency( int maxFrequencies){
+        this.maxFrequencies = maxFrequencies;
+    }
 
+    public void clearFrecuency(){
+        active.clear();
+    }
     // tries to claim the frequency for the radio passed, return true if successfully claimed the frequency
     public synchronized boolean claim(int f, UUID radioId) {
         if (f < 1 || f > maxFrequencies) return false;

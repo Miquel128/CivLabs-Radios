@@ -8,7 +8,7 @@ import com.civlabs.radios.util.RadioMath;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
-
+import org.bukkit.Location;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
@@ -41,20 +41,29 @@ public class OperatorGuardTask {
         for (Radio r : store.getAll()) {
             if (!r.isEnabled()) continue;
 
+            UUID opId = r.getOperator();
+            Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
+            Location loc = r.getLocation();
+
+            if (op == null || !op.isOnline() || loc == null ||
+                    !op.getWorld().equals(loc.getWorld()) ||
+                    op.getLocation().distanceSquared(loc) > plugin.getOperatorRadius() * plugin.getOperatorRadius()) {
+
+                disableFn.accept(r, DisableReason.OPERATOR_LOST);
+                continue;
+            }
             // Update antenna & range each tick (cheap; ensures live structure)
             RadioMath.recomputeAntennaAndRange(r);
 
             if (r.getAntennaCount() <= 0 || r.getMaxRangeBlocks() <= 0) {
                 disableFn.accept(r, DisableReason.ADMIN);
-                UUID opId = r.getOperator();
-                Player op = (opId != null ? Bukkit.getPlayer(opId) : null);
                 if (op != null) op.sendMessage(net.kyori.adventure.text.Component.text("§cNo vertical antenna stack found."));
                 continue;
             }
 
             if (r.getFuelSeconds() > 0) {
-                int burn = RadioMath.burnPerSecond(r.getFinalRangeBlocks()); // ceil(1.002^R - 1)
-                r.setFuelSeconds(r.getFuelSeconds() - Math.max(1, burn));   // always at least 1/s
+                double burn = RadioMath.burnPerSecond(r.getFinalRangeBlocks()); // ceil(1.002^R - 1)
+                r.setFuelSeconds(r.getFuelSeconds() -  burn);   
                 store.save(r);
             }
 

@@ -25,10 +25,7 @@ public class Radio {
     private UUID operator;
 
     // --- Fuel ---
-    private int fuelSeconds;              // Remaining seconds of fuel
-
-    // remember to delete or disable this variable in release
-    private int totalFuelAddedSeconds;    // Lifetime count of seconds added from copper
+    private double fuelSeconds;              // Remaining seconds of fuel
 
     // --- Antenna / Range ---
     private int antennaCount;
@@ -84,8 +81,8 @@ public class Radio {
     public void setOperator(UUID operator) { this.operator = operator; }
 
     // --- Fuel ---
-    public int getFuelSeconds() { return fuelSeconds; }
-    public void setFuelSeconds(int fuelSeconds) {
+    public double getFuelSeconds() { return fuelSeconds; }
+    public void setFuelSeconds(double fuelSeconds) {
         this.fuelSeconds = Math.max(0, fuelSeconds);
     }
     public void addFuelSeconds(int add) {
@@ -93,14 +90,7 @@ public class Radio {
     }
     public boolean hasFuel() { return fuelSeconds > 0; }
 
-    // --- Lifetime fuel total ---
-    public int getTotalFuelAddedSeconds() { return totalFuelAddedSeconds; }
-    public void setTotalFuelAddedSeconds(int totalFuelAddedSeconds) {
-        this.totalFuelAddedSeconds = Math.max(0, totalFuelAddedSeconds);
-    }
-    public void addTotalFuelAddedSeconds(int add) {
-        if (add > 0) this.totalFuelAddedSeconds += add;
-    }
+
 
     // --- Range / antenna ---
     public int getAntennaCount() { return antennaCount; }

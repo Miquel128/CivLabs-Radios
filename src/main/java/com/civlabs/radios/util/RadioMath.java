@@ -23,9 +23,9 @@ public final class RadioMath {
     }
 
     /** Fuel burn per second using f(x) = 1.002^x - 1, x = R_final */
-    public static int burnPerSecond(int finalRangeBlocks) {
+    public static double burnPerSecond(int finalRangeBlocks) {
         if (finalRangeBlocks <= 0) return 0;
         double burn = Math.pow(1.002, finalRangeBlocks) - 1.0; // exponential
-        return (int) Math.ceil(burn); // consume whole seconds of fuel
+        return Math.max(1,burn); // consume at least 1 second of fuel
     }
 }

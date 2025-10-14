@@ -41,6 +41,7 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
     private SoundEffects sounds;
     private RadioMode currentMode;
     private boolean showCoordinates;
+    private int operatorRadius;
 
     public static NamespacedKey key(String path, JavaPlugin plugin) {
         return new NamespacedKey(plugin, path);
@@ -68,15 +69,19 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
         }
         getLogger().info("CivLabsRadios disabled.");
     }
-        private boolean initialize(){
+
+    private void loadConfig(){
+        this.currentMode = RadioMode.valueOf(getConfig().getString("radioMode", "simple").toUpperCase());
+        this.showCoordinates = getConfig().getBoolean("admin.showCoordinates", false);
+        this.operatorRadius = getConfig().getInt("operatorRadius", 30);
+    }
+    private boolean initialize(){
 
         if (getCommand("radio") != null) getCommand("radio").setTabCompleter(new RadioTabCompleter(this));
 
         saveDefaultConfig();
         Keys.init(this);
-
-        this.currentMode = RadioMode.valueOf(getConfig().getString("radioMode", "simple").toUpperCase());
-        this.showCoordinates = getConfig().getBoolean("admin.showCoordinates", false);
+        loadConfig();
 
         this.radioStore = new RadioStore(getDataFolder().toPath().resolve("radios.yml"));
         this.freqManager = new FrequencyManager(getConfig().getInt("maxFrequencies", 10));
@@ -117,6 +122,7 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
     public int getMaxFrequencies() { return freqManager.getMaxFrequencies(); }
     public RadioMode getRadioMode() { return currentMode; }
     public boolean showCoordinates() { return showCoordinates; }
+    public int getOperatorRadius() { return operatorRadius;}
 
     // Frequency lock check used in GUI
     public boolean isFrequencyLockedFor(int f, UUID requesterRadioId) {
@@ -247,7 +253,9 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
                 }
                 getConfig().set("maxFrequencies", maxFreq);
                 saveConfig();
-                this.freqManager = new FrequencyManager(maxFreq);
+                this.freqManager.clearFrecuency();
+                this.freqManager.setMaxFrecuency(maxFreq);
+
                 for (Radio r : radioStore.getAll()) {
                     if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) disableRadioIfEnabled(r, DisableReason.ADMIN);
                 }
@@ -258,7 +266,8 @@ public final class CivLabsRadiosPlugin extends JavaPlugin {
                 if (!sender.hasPermission("civlabs.radio.admin")) { sender.sendMessage("No permission"); return true; }
                 reloadConfig();
                 int maxFreq = getConfig().getInt("maxFrequencies", freqManager.getMaxFrequencies());
-                this.freqManager = new FrequencyManager(maxFreq);
+                this.freqManager.clearFrecuency();
+
                 for (Radio r : radioStore.getAll()) {
                     if (r.isEnabled() && r.getTransmitFrequency() > maxFreq) disableRadioIfEnabled(r, DisableReason.ADMIN);
                 }
