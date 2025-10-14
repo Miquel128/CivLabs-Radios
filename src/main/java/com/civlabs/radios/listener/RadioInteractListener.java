@@ -3,6 +3,8 @@ package com.civlabs.radios.listener;
 import com.civlabs.radios.CivLabsRadiosPlugin;
 import com.civlabs.radios.gui.RadioGui;
 import com.civlabs.radios.model.Radio;
+
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -12,6 +14,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.PlayerInventory;
 
 import java.util.Set;
 
@@ -32,15 +35,28 @@ public class RadioInteractListener implements Listener {
         if (e.getClickedBlock() == null) return;
 
         Block b = e.getClickedBlock();
-
+        
         // We rely on stored location → radio mapping, so no hard Material check needed.
         // If you want to optimize, you could check for Material.SMOKER here.
 
         plugin.store().byLocation(b.getLocation()).ifPresent(r -> {
             // Cancel default container opening and show our GUI
-            e.setCancelled(true);
-
+            
             Player p = e.getPlayer();
+            // if the player is sneaking 
+            if(p.isSneaking() ) {
+                // need to check his inventory since empty hand while crouching can still 
+                // interact with the block , in which case we should cancel the event entirely
+                PlayerInventory inventory = p.getInventory();
+                if(inventory.getItemInMainHand().getType() == Material.AIR 
+                    && inventory.getItemInOffHand().getType() == Material.AIR){
+
+                    e.setCancelled(true);
+                }
+                return;
+            } 
+
+            e.setCancelled(true);
             RadioGui.open(plugin, p, r);
             plugin.sounds().playClick(p);
         });
