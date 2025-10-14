@@ -16,13 +16,30 @@ public final class AntennaUtil {
         int x = radioLoc.getBlockX();
         int y = radioLoc.getBlockY();
         int z = radioLoc.getBlockZ();
+        y++;
 
+        Block block = w.getBlockAt(x, y , z);
+        // check if the block on top of the radio is a waxxed_copper_gate
+        if(block.getType() != Material.WAXED_COPPER_GRATE)
+            return 0;
+
+        y++;
         int count = 0;
         while (true) {
-            Block b = w.getBlockAt(x, y + 1 + count, z);
-            if (b.getType() == Material.LIGHTNING_ROD) count++;
-            else break;
+            Block b = w.getBlockAt(x, y, z);
+            if (b.getType() != Material.LIGHTNING_ROD)
+                break;
+            count++;
+            y++;
         }
+
+        // check if the antenna is being topped by three waxxed_copper_grate
+        for(int i=0; i< 3; i++){
+            if( w.getBlockAt(x,y + i,z).getType() != Material.WAXED_COPPER_GRATE)
+                return 0;
+        }
+        
+        
         return count;
     }
 }
